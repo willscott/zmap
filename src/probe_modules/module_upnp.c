@@ -47,7 +47,6 @@ int upnp_init_perthread(void* buf, macaddr_t *src,
 	struct udphdr *udp_header = (struct udphdr*)(&ip_header[1]);
 	len = sizeof(struct udphdr) + strlen(upnp_query);
 	make_udp_header(udp_header, dst_port, len);
-	printf("setting udp header dst_port to %hu\n", dst_port);
 
 	char* payload = (char*)(&udp_header[1]);
 
@@ -89,9 +88,6 @@ void upnp_process_packet(const u_char *packet,
 			if (pch[strlen(pch)-1] == '\r') {
 				pch[strlen(pch)-1] = '\0';
 			}
-			//printf("line is <<%s>>\n", pch);
-			//fflush(stdout);
-			//printf("strlen is %i\n", strlen(pch));
 			if (strlen(pch) == 0) {
 				pch = strtok(NULL, "\n");
 				continue;
@@ -115,18 +111,11 @@ void upnp_process_packet(const u_char *packet,
 			if (value && value[0] == ' ') {
 				value += (size_t)1;
 			}
-			//printf("value is %s\n", value);
-
-			//if (!value || !key) {
-			//	continue;
-			//}
 			if (!key) {
-			//	printf("no key\n");
 				pch = strtok(NULL, "\n");
 				continue;
 			}
 			if (!value) {
-			//	printf("no value\n");
 				pch = strtok(NULL, "\n");
 				continue;
 			}
@@ -150,10 +139,8 @@ void upnp_process_packet(const u_char *packet,
 			} else if (!strcmp(key, "Cache-Control") || !strcmp(key, "CACHE-CONTROL")) {
 				cachecontrol = strdup(value);
 			} else {
-				printf("new key: %s\n", key);
+				log_trace("upnp-module", "new key: %s", key);
 			}
-			//printf("value is <<%s>>\n", value);
-			//printf("key is <<%s>>\n", key);
 			pch = strtok(NULL, "\n");
 		}
 cleanup:	
@@ -256,15 +243,14 @@ static fielddef_t fields[] = {
         {.name = "classification", .type="string", .desc = "packet classification"},
         {.name = "success", .type="int", .desc = "is response considered success"},
 
-        {.name = "server", .type="string", .desc = "UPnP server type"},
-        {.name = "location", .type="string", .desc = "UPnP server type"},
-        {.name = "usn", .type="string", .desc = "UPnP server type"},
-        {.name = "st", .type="string", .desc = "UPnP server type"},
-        {.name = "cache-control", .type="string", .desc = "UPnP server type"},
-        {.name = "x-user-agent", .type="string", .desc = "UPnP server type"},
-        {.name = "agent", .type="string", .desc = "UPnP server type"},
-        {.name = "date", .type="string", .desc = "UPnP server type"},
-        //{.name = "date", .type="string", .desc = "UPnP server type"},
+        {.name = "server", .type="string", .desc = "UPnP server"},
+        {.name = "location", .type="string", .desc = "UPnP location"},
+        {.name = "usn", .type="string", .desc = "UPnP usn"},
+        {.name = "st", .type="string", .desc = "UPnP st"},
+        {.name = "cache-control", .type="string", .desc = "UPnP cache-control"},
+        {.name = "x-user-agent", .type="string", .desc = "UPnP x-user-agent"},
+        {.name = "agent", .type="string", .desc = "UPnP agent"},
+        {.name = "date", .type="string", .desc = "UPnP date"},
 
         {.name = "sport",  .type = "int", .desc = "UDP source port"},
         {.name = "dport",  .type = "int", .desc = "UDP destination port"},
