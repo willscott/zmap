@@ -19,7 +19,7 @@ endif()
 
 # Hardening and warnings for building with gcc
 # Maybe add -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations
-set(GCCWARNINGS 
+set(GCCWARNINGS
 	"-Wall -Wformat=2 -Wno-format-nonliteral"
 	"-pedantic -fno-strict-aliasing"
 	"-Wextra"
@@ -33,8 +33,8 @@ set(GCCWARNINGS
 string(REPLACE ";" " "  GCCWARNINGS "${GCCWARNINGS}")
 
 if(ENABLE_DEVELOPMENT)
-	set(GCCWARNINGS "${GCCWARNINGS} -Werror")
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -ggdb")
+	#set(GCCWARNINGS "${GCCWARNINGS} -Werror")
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g")
 	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -g")
 else()
 	# Hardening and optimizations for building with gcc
