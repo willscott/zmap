@@ -19,3 +19,5 @@ install_manifest.txt
 _CPack_Packages/*
 *.deb
 !.gitignore
+TAGS
+.dir-locals.el
