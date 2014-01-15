@@ -17,6 +17,15 @@ if ("${CMAKE_SYSTEM_NAME}" MATCHES "FreeBSD" OR "${CMAKE_SYSTEM_NAME}" MATCHES "
    set(BSD "YES")
 endif()
 
+# Create a target to generate tags. Currently, tags are for emacs, but
+# more targets can be added for other editors
+set_source_files_properties(TAGS PROPERTIES GENERATED true)
+add_custom_target(TAGS
+    COMMAND ctags -R -e .
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+add_custom_target(tags DEPENDS TAGS)
+set_directory_properties(PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES TAGS)
+
 # Hardening and warnings for building with gcc
 # Maybe add -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations
 set(GCCWARNINGS
