@@ -21,7 +21,7 @@ endif()
 # more targets can be added for other editors
 set_source_files_properties(TAGS PROPERTIES GENERATED true)
 add_custom_target(TAGS
-    COMMAND ctags -R -e .
+    COMMAND ctags -R -e examples lib src
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 add_custom_target(tags DEPENDS TAGS)
 set_directory_properties(PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES TAGS)
