@@ -65,7 +65,6 @@ SET(SOURCES
 	shard.c
 	state.c
 	validate.c
-	zmap.c
 	zopt_compat.c
 	"${CMAKE_CURRENT_BINARY_DIR}/zopt.h"
 	"${CMAKE_CURRENT_BINARY_DIR}/lexer.c"
@@ -100,16 +99,13 @@ add_custom_command(OUTPUT parser.c
 	DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/parser.y"
 	)
 
-add_executable(zmap ${SOURCES})
+add_library(zcore STATIC ${SOURCES})
 
-if (APPLE OR BSD)
-	set(DNET_LIBRARIES "dnet")
-else()
-	set(DNET_LIBRARIES "")
-endif()
+add_executable(zmap zmap.c)
 
 target_link_libraries(
-	zmap 
+	zmap
+	zcore
 	pcap gmp m
 	${DNET_LIBRARIES}
 	${REDIS_LIBS}

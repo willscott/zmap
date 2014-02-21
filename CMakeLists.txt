@@ -82,7 +82,18 @@ if (NOT APPLE)
 	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -pthread")
 endif()
 
+# Deal with dnet
+if (APPLE OR BSD)
+	set(DNET_LIBRARIES "dnet")
+	set(VENDOR_LIBS "${VENDOR_LIBS} dnet")
+else()
+	set(DNET_LIBRARIES "")
+endif()
+
+# Put them in all in a list
+
 add_subdirectory(src)
+add_subdirectory(test)
 
 # Install conf files
 #FILE(GLOB CONF_FILES RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}/conf" "conf/*")

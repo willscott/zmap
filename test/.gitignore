@@ -4,3 +4,4 @@ tempfile
 outfile
 !.gitignore
 shardfile
+unit_test
