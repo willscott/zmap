@@ -90,9 +90,12 @@ else()
 	set(DNET_LIBRARIES "")
 endif()
 
-# Put them in all in a list
-
+# Build zmap
 add_subdirectory(src)
+
+# Build tests
+enable_testing()
+add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND})
 add_subdirectory(test)
 
 # Install conf files

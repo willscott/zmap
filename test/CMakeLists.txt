@@ -8,7 +8,9 @@ SET(TEST_SOURCES
 	test_shard.c
 	)
 
-add_executable(unit_test ${TEST_SOURCES})
+add_executable(unit_test EXCLUDE_FROM_ALL ${TEST_SOURCES})
+add_test(unit_test unit_test)
+add_dependencies(check unit_test)
 
 target_link_libraries(
 	unit_test
