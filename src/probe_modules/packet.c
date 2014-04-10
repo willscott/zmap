@@ -6,14 +6,14 @@
  * of the License at http://www.apache.org/licenses/LICENSE-2.0
  */
 
-#include "packet.h"
-
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
 
 #include "../../lib/includes.h"
+#include "packet.h"
+
 #include "../state.h"
 
 #ifndef NDEBUG
@@ -30,17 +30,24 @@ void print_macaddr(struct ifreq* i)
 }
 #endif /* NDEBUG */
 
+#define IP_ADDR_LEN_STR 20 
+
 void fprintf_ip_header(FILE *fp, struct ip *iph)
 {
 	struct in_addr *s = (struct in_addr *) &(iph->ip_src);
 	struct in_addr *d = (struct in_addr *) &(iph->ip_dst);
-	char srcip[20];
-	char dstip[20];
+
+	char srcip[IP_ADDR_LEN_STR+1];
+	char dstip[IP_ADDR_LEN_STR+1];
 	// inet_ntoa is a const char * so we if just call it in
 	// fprintf, you'll get back wrong results since we're
 	// calling it twice.
-	strncpy(srcip, inet_ntoa(*s), 19);
-	strncpy(dstip, inet_ntoa(*d), 19);
+	strncpy(srcip, inet_ntoa(*s), IP_ADDR_LEN_STR - 1);
+	strncpy(dstip, inet_ntoa(*d), IP_ADDR_LEN_STR - 1);
+
+	srcip[IP_ADDR_LEN_STR] = '\0';
+	dstip[IP_ADDR_LEN_STR] = '\0';
+
 	fprintf(fp, "ip { saddr: %s | daddr: %s | checksum: %#04X }\n",
 			srcip,
 			dstip,

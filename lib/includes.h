@@ -1,17 +1,15 @@
-#ifdef __linux__
-#include <dumbnet.h>
-#else
+#ifdef __APPLE__
 #include <dnet.h>
 #endif
 
-
 #ifndef __FAVOR_BSD
-#define __FAVOR_BSD
+#define __FAVOR_BSD 2
 #endif
 #ifndef __USE_BSD
 #define __USE_BSD
 #endif
 
+#include <sys/types.h>
 #include <netinet/in.h>
 #include <netinet/ip.h>
 #include <netinet/ip_icmp.h>

@@ -56,7 +56,7 @@ struct state_conf {
 	// continue to process responses
 	int cooldown_secs;
 	// number of sending threads
-	int senders;
+	uint8_t senders;
 	// should use CLI provided randomization seed instead of generating
 	// a random seed.
 	int use_seed;
@@ -64,12 +64,17 @@ struct state_conf {
 	// generator of the cyclic multiplicative group that is utilized for
 	// address generation
 	uint32_t generator;
+	// sharding options
+	uint8_t shard_num;
+	uint8_t total_shards;
 	int packet_streams;
 	struct probe_module *probe_module;
 	struct output_module *output_module;
 	char *probe_args;
 	char *output_args;
 	macaddr_t gw_mac[MAC_ADDR_LEN_BYTES];
+	macaddr_t hw_mac[MAC_ADDR_LEN_BYTES];
+	uint32_t gw_ip;
 	int gw_mac_set;
 	int send_ip_pkts;
 	char *source_ip_first;
@@ -77,16 +82,22 @@ struct state_conf {
 	char *output_filename;
 	char *blacklist_filename;
 	char *whitelist_filename;
+	char *metadata_filename;
+	FILE *metadata_file;
 	char **destination_cidrs;
 	int destination_cidrs_len;
 	char *raw_output_fields;
 	char **output_fields;
 	struct output_filter filter;
+	char *output_filter_str;
 	struct fieldset_conf fsconf;
 	int output_fields_len;
+	char *log_file;
+	char *log_directory;
 	int dryrun;
 	int summary;
 	int quiet;
+	int syslog;
 	int filter_duplicates;
 	int filter_unsuccessful;
 	int recv_ready;
@@ -104,6 +115,7 @@ struct state_send {
 	uint32_t first_scanned;
 	uint32_t targets;
 	uint32_t sendto_failures;
+	uint32_t max_index;
 };
 extern struct state_send zsend;
 

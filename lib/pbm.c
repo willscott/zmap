@@ -16,7 +16,8 @@ uint8_t** pbm_init(void)
 {
 	uint8_t** retv = calloc(NUM_PAGES, sizeof(void*));
 	if (!retv) {
-		log_fatal("pbm", "unable to allocate memory for base page table");
+		log_fatal("pbm", "unable to allocate "
+				"memory for base page table");
 	}
 	return retv;
 }
@@ -38,7 +39,7 @@ static inline void bm_set(uint8_t *bm, uint16_t v)
 int pbm_check(uint8_t **b, uint32_t v)
 {
 	uint32_t top = v >> 16;
-	uint32_t bottom = v & PAGE_SIZE_IN_BITS;
+	uint32_t bottom = v & PAGE_MASK;
 	return b[top] && bm_check(b[top], bottom);
 }
 
@@ -49,7 +50,8 @@ void pbm_set(uint8_t **b, uint32_t v)
 	if (!b[top]) {
 		uint8_t *bm = malloc(PAGE_SIZE_IN_BYTES);
 		if (!bm) {
-			log_fatal("bpm", "unable to allocate memory for new bitmap page");
+			log_fatal("bpm", "unable to allocate memory "
+					"for new bitmap page");
 		}
 		memset(bm, 0, PAGE_SIZE_IN_BYTES);
 		b[top] = bm;

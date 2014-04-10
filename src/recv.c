@@ -154,9 +154,9 @@ int recv_update_pcap_stats(void)
 
 int recv_run(pthread_mutex_t *recv_ready_mutex)
 {
-	log_debug("recv", "thread started");
+	log_trace("recv", "recv thread started");
 	num_src_ports = zconf.source_port_last - zconf.source_port_first + 1;
-	log_debug("recv", "using dev %s", zconf.iface);
+	log_debug("recv", "capturing responses on %s", zconf.iface);
 	if (!zconf.dryrun) {
 		char errbuf[PCAP_ERRBUF_SIZE];
 		pc = pcap_open_live(zconf.iface, zconf.probe_module->pcap_snaplen,
@@ -186,7 +186,6 @@ int recv_run(pthread_mutex_t *recv_ready_mutex)
 	}
 	// initialize paged bitmap
 	seen = pbm_init();
-	log_debug("recv", "receiver ready");
 	if (zconf.filter_duplicates) {
 		log_debug("recv", "duplicate responses will be excluded from output"); 
 	} else {
@@ -210,11 +209,10 @@ int recv_run(pthread_mutex_t *recv_ready_mutex)
 		if (zconf.dryrun) {
 			sleep(1);
 		} else {
-			if (pcap_dispatch(pc, 0, packet_cb, NULL) == -1) {
+			if (pcap_dispatch(pc, -1, packet_cb, NULL) == -1) {
 				log_fatal("recv", "pcap_dispatch error");
 			}
 			if (zconf.max_results && zrecv.success_unique >= zconf.max_results) {
-				zsend.complete = 1;
 				break;
 			}
 		}
@@ -222,7 +220,12 @@ int recv_run(pthread_mutex_t *recv_ready_mutex)
 	zrecv.finish = now();
 	// get final pcap statistics before closing
 	recv_update_pcap_stats();
-	pcap_close(pc);
+	if (!zconf.dryrun) {
+		pthread_mutex_lock(recv_ready_mutex);
+		pcap_close(pc);
+		pc = NULL;
+		pthread_mutex_unlock(recv_ready_mutex);
+	}
 	zrecv.complete = 1;
 	log_debug("recv", "thread finished");
 	return 0;
