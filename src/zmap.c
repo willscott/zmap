@@ -498,12 +498,6 @@ static void json_metadata(FILE *file)
 
 static void start_zmap(void)
 {
-	if (zconf.iface == NULL) {
-		zconf.iface = get_default_iface();
-		assert(zconf.iface);
-		log_debug("zmap", "no interface provided. will use default"
-				" interface (%s).", zconf.iface);
-	}
 	if (zconf.source_ip_first == NULL) {
 		struct in_addr default_ip;
 		zconf.source_ip_first = malloc(INET_ADDRSTRLEN);
@@ -970,6 +964,21 @@ int main(int argc, char *argv[])
 	SET_IF_GIVEN(zconf.max_results, max_results);
 	SET_IF_GIVEN(zconf.rate, rate);
 	SET_IF_GIVEN(zconf.packet_streams, probes);
+
+	if (zconf.iface == NULL) {
+		zconf.iface = get_default_iface();
+		assert(zconf.iface);
+		log_debug("zmap", "no interface provided. will use default"
+			  " interface (%s).", zconf.iface);
+	}
+
+	// Check if DNA is enabled.
+	// TODO: Get this info from the driver, not the interface name
+	if (!strncmp(zconf.iface, "dna", 3)) {
+		zconf.dna_enabled = 1;
+	} else {
+		zconf.dna_enabled = 0;
+	}
 
 	if (args.metadata_file_arg) {
 #ifdef JSON
