@@ -16,22 +16,24 @@
 
 #define UNUSED __attribute__((unused))
 
-int get_socket(void)
+sock_t get_socket(void)
 {
 	char file[32];
-	int bpf;
+	sock_t bpf;
 
 	// Try to find a valid bpf
 	for (int i = 0; i < 128; i++) {
 		snprintf(file, sizeof(file), "/dev/bpf%d", i);
-		bpf = open(file, O_WRONLY);
-		if (bpf != -1 || errno != EBUSY)
+		bpf.sock = open(file, O_WRONLY);
+		if (bpf.sock != -1 || errno != EBUSY) {
 			break;
+		}
 	}
-	
+
 	// Make sure it worked
-	if (bpf < 0)
-		return -1;
+	if (bpf.sock < 0) {
+		goto fail;
+	}
 
 	// Set up an ifreq to bind to
 	struct ifreq ifr;
@@ -39,13 +41,19 @@ int get_socket(void)
 	strlcpy(ifr.ifr_name, zconf.iface, sizeof(ifr.ifr_name));
 
 	// Bind the bpf to the interface
-	if (ioctl(bpf, BIOCSETIF, (char *) &ifr) < 0)
-		return -1;
+	if (ioctl(bpf.sock, BIOCSETIF, (char *) &ifr) < 0) {
+		goto fail;
+	}
 
 	// Enable writing the address in
 	int write_addr_enable = 1;
-	if (ioctl(bpf, BIOCSHDRCMPLT, &write_addr_enable) < 0)
-		return -1;
+	if (ioctl(bpf.sock, BIOCSHDRCMPLT, &write_addr_enable) < 0) {
+		goto fail;
+	}
+	return bpf;
+
+ fail:
+	bpf.sock = -1;
 	return bpf;
 }
 
@@ -55,9 +63,9 @@ int send_run_init(UNUSED int sock)
 	return EXIT_SUCCESS;
 }
 
-int send_packet(int fd, void *buf, int len)
+int send_packet(sock_t sock, void *buf, int len)
 {
-	return write(fd, buf, len);
+	return write(sock.sock, buf, len);
 }
 
 

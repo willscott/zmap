@@ -109,7 +109,8 @@ else()
 endif()
 
 target_link_libraries(
-	zmap 
+	zmap
+	pfring
 	pcap gmp m
 	${DNET_LIBRARIES}
 	${REDIS_LIBS}

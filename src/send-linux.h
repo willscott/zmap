@@ -4,8 +4,6 @@
 #include "../lib/includes.h"
 #include <sys/ioctl.h>
 
-#include <netpacket/packet.h>
-
 #ifdef ZMAP_SEND_BSD_H
 #error "Don't include both send-bsd.h and send-linux.h"
 #endif
@@ -14,17 +12,18 @@
 static struct sockaddr_ll sockaddr;
 
 
-int get_socket(void)
+sock_t get_socket(void)
 {
-	int sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
-	if (sock <= 0) {
+	sock_t sock;
+        sock.sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
+	if (sock.sock <= 0) {
 		log_fatal("send", "couldn't create socket. "
 			  "Are you root? Error: %s\n", strerror(errno));
 	}
 	return sock;
 }
 
-int send_run_init(int sock)
+int send_run_init(sock_t socket)
 {
 	// get source interface index
 	struct ifreq if_idx;
@@ -35,7 +34,7 @@ int send_run_init(int sock)
 		return EXIT_FAILURE;
 	}
 	strncpy(if_idx.ifr_name, zconf.iface, IFNAMSIZ-1);
-	if (ioctl(sock, SIOCGIFINDEX, &if_idx) < 0) {
+	if (ioctl(socket.sock, SIOCGIFINDEX, &if_idx) < 0) {
 		perror("SIOCGIFINDEX");
 		return EXIT_FAILURE;
 	}
@@ -48,7 +47,7 @@ int send_run_init(int sock)
 	struct ifreq if_ip;
 	memset(&if_ip, 0, sizeof(struct ifreq));
 	strncpy(if_ip.ifr_name, zconf.iface, IFNAMSIZ-1);
-	if (ioctl(sock, SIOCGIFADDR, &if_ip) < 0) {
+	if (ioctl(socket.sock, SIOCGIFADDR, &if_ip) < 0) {
 		perror("SIOCGIFADDR");
 		return EXIT_FAILURE;
 	}
@@ -60,9 +59,9 @@ int send_run_init(int sock)
 	return EXIT_SUCCESS;
 }
 
-int send_packet(int fd, void *buf, int len)
+int send_packet(sock_t sock, void *buf, int len)
 {
-	return sendto(fd, buf, len, 0, 
+	return sendto(sock.sock, buf, len, 0,
 		      (struct sockaddr *) &sockaddr,
 		      sizeof(struct sockaddr_ll));
 }
