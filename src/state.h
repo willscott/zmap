@@ -101,7 +101,6 @@ struct state_conf {
 	int filter_duplicates;
 	int filter_unsuccessful;
 	int recv_ready;
-	int dna_enabled;
 };
 extern struct state_conf zconf;
 

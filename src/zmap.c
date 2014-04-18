@@ -972,14 +972,6 @@ int main(int argc, char *argv[])
 			  " interface (%s).", zconf.iface);
 	}
 
-	// Check if DNA is enabled.
-	// TODO: Get this info from the driver, not the interface name
-	if (!strncmp(zconf.iface, "dna", 3)) {
-		zconf.dna_enabled = 1;
-	} else {
-		zconf.dna_enabled = 0;
-	}
-
 	if (args.metadata_file_arg) {
 #ifdef JSON
 		zconf.metadata_filename = args.metadata_file_arg;
