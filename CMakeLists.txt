@@ -60,6 +60,10 @@ endif()
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${GCCWARNINGS}")
 
+if(WITH_PFRING)
+	add_definitions("-DPFRING")
+endif()
+
 if(WITH_REDIS)
 	set(REDIS_LIBS hiredis)
 	add_definitions("-DREDIS")

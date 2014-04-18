@@ -4,8 +4,8 @@
 #include "../lib/includes.h"
 #include <sys/ioctl.h>
 
-#ifdef ZMAP_SEND_BSD_H
-#error "Don't include both send-bsd.h and send-linux.h"
+#if defined(ZMAP_SEND_BSD_H) || defined(ZMAP_SEND_PFRING_H)
+#error "Don't include send-bsd.h and send-pfring.h with send-linux.h"
 #endif
 
 // Dummy sockaddr for sendto

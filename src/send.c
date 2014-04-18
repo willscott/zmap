@@ -40,6 +40,8 @@ static inline int send_run_init(sock_t sock);
 // Include the right implementations
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__)
 #include "send-bsd.h"
+#elif defined(PFRING)
+#include "send-pfring.h"
 #else /* LINUX */
 #include "send-linux.h"
 #endif /* __APPLE__ || __FreeBSD__ || __NetBSD__ */

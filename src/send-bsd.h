@@ -10,8 +10,8 @@
 
 #include <net/bpf.h>
 
-#ifdef ZMAP_SEND_LINUX_H
-#error "Don't include both send-bsd.h and send-linux.h"
+#if defined(ZMAP_SEND_LINUX_H) || defined(ZMAP_SEND_PFRING_H)
+#error "Don't include send-linux.h and send-pfring.h with send-bsd.h"
 #endif
 
 #define UNUSED __attribute__((unused))
