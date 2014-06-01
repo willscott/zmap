@@ -162,7 +162,7 @@ static void monitor_update(iterator_t *it, pthread_mutex_t *recv_ready_mutex)
 		if (zconf.fsconf.app_success_index >= 0) {
 			number_string((zrecv.app_success_unique - last_app_success)/delta,
 							app_success_rate, sizeof(app_success_rate));
-			number_string((zrecv.app_success_unique/age), recv_avg, sizeof(recv_avg));
+			number_string((zrecv.app_success_unique/age), app_success_avg, sizeof(app_success_avg));
 		}
 		// dropped stats
 		number_string((zrecv.pcap_drop + zrecv.pcap_ifdrop - last_drop)/delta,
@@ -206,7 +206,7 @@ static void monitor_update(iterator_t *it, pthread_mutex_t *recv_ready_mutex)
 						"recv: %u %sp/s (%sp/s avg); "
 						"success: %u %sp/s (%sp/s avg); "
 						"drops: %sp/s (%sp/s avg); "
-						"hits: %0.2f%%\n"
+						"hits: %0.2f%%; "
 						"app hits: %0.2f%%\n",
 						time_past,
 						percent_complete,
@@ -232,7 +232,7 @@ static void monitor_update(iterator_t *it, pthread_mutex_t *recv_ready_mutex)
 						"recv: %u %sp/s (%sp/s avg); "
 						"success: %u %sp/s (%sp/s avg); "
 						"drops: %sp/s (%sp/s avg); "
-						"hits: %0.2f%%\n"
+						"hits: %0.2f%%; "
 						"app hits: %0.2f%%\n",
 						time_past,
 						percent_complete,
