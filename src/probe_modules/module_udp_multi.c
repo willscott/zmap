@@ -30,6 +30,7 @@
 
 static char *udp_multi_send_msg = NULL;
 static int udp_multi_send_msg_len = 0;
+static int *udp_multi_send_msg_len_arr = NULL;
 static int udp_multi_send_substitutions = 0;
 static udp_multi_payload_template_t *udp_multi_template = NULL;
 
@@ -110,7 +111,7 @@ void udp_multi_set_num_ports(int x)
 }
 
 int udp_multi_global_initialize(struct state_conf *conf) {
-	char *args, *c;
+	char *args, *c, *pc, *pca;
 	int i;
 	unsigned int n;
 
@@ -157,7 +158,43 @@ int udp_multi_global_initialize(struct state_conf *conf) {
 		udp_multi_send_msg_len = strlen(udp_multi_send_msg);
 
 	} else if (strcmp(args, "file") == 0 || strcmp(args, "template") == 0) {
-		inp = fopen(c, "rb");
+        i = 0;
+        pc = strchr(c, ',')
+        while (pc != NULL) {
+          i++;
+          pc = strchr(pc + 1, ',')
+        }
+        // Multi-file.
+        if (i > 0) {
+          free(udp_multi_send_msg);
+          udp_multi_send_msg_len = i + 1;
+          fprintf(stderr, "Round robin of %d packets.\n\n", udp_multi_send_msg_len);
+		  udp_multi_send_msg = xmalloc((i + 1) * MAX_UDP_MULTI_PAYLOAD_LEN);
+          udp_multi_send_msg_len_arr = xmalloc((i + 1) * sizeof(int));
+          i = 0;
+          pca = c;
+          pc = strchr(c, ',')
+          while (pc != NULL) {
+            pc[0] = '\0';
+            inp = fopen(pca, "rb");
+		    if (!inp) {
+			  free(args);
+              free(udp_multi_send_msg);
+			  log_fatal("udp_multi", "could not open UDP data file '%s'\n", c);
+		      exit(1);
+		    }
+		    udp_multi_send_msg_len_arr[i] = fread(udp_multi_send_msg+(i*MAX_UDP_MULTI_PAYLOAD_LEN), 1, MAX_UDP_MULTI_PAYLOAD_LEN, inp);
+		    fclose(inp);
+
+            i++;
+            pca = pc + 1;
+            pc = strchr(pc + 1, ',')
+          }
+          free(args);
+	      return EXIT_SUCCESS;
+        }
+
+        inp = fopen(c, "rb");
 		if (!inp) {
 			free(args);
 			free(udp_multi_send_msg);
@@ -213,6 +250,10 @@ int udp_multi_global_cleanup(__attribute__((unused)) struct state_conf *zconf,
 		free(udp_multi_send_msg);
 		udp_multi_send_msg = NULL;
 	}
+    if (udp_multi_send_msg_len_arr) {
+		free(udp_multi_send_msg_len_arr);
+		udp_multi_send_msg_len_arr = NULL;
+    }
 
 	if (udp_multi_template) {
 		udp_multi_template_free(udp_multi_template);
@@ -287,7 +328,14 @@ int udp_multi_make_packet(void *buf, ipaddr_n_t src_ip, ipaddr_n_t dst_ip,
 		// Update the IP and UDP headers to match the new payload length
 		ip_header->ip_len   = htons(sizeof(struct ip) + sizeof(struct udphdr) + payload_len);
 		udp_header->uh_ulen = ntohs(sizeof(struct udphdr) + payload_len);
-	}
+	} else if (udp_multi_send_msg_len_arr) {
+      // Substitute appropriate pkt.
+      int payload_idx = udp_multi_idx(dst_ip);
+      memcpy((char*)(&udp_header[1]), &udp_multi_send_msg[payload_idx * MAX_UDP_MULTI_PAYLOAD_LEN], udp_multi_send_msg_len_arr[payload_idx]);
+    
+      ip_header->ip_len   = htons(sizeof(struct ip) + sizeof(struct udphdr) + udp_multi_send_msg_len_arr[payload_idx]);
+      udp_header->uh_ulen = ntohs(sizeof(struct udphdr) + udp_multi_send_msg_len_arr[payload_idx]);
+    }
 
 	ip_header->ip_sum = 0;
 	ip_header->ip_sum = zmap_ip_checksum((unsigned short *) ip_header);
@@ -315,6 +363,7 @@ void udp_multi_process_packet(const u_char *packet, UNUSED uint32_t len, fieldse
 	if (ip_hdr->ip_p == IPPROTO_UDP) {
 		struct udphdr *udp = (struct udphdr *) ((char *) ip_hdr + ip_hdr->ip_hl * 4);
 		fs_add_string(fs, "classification", (char*) "udp", 0);
+		fs_add_uint64(fs, "probe", udp_multi_idx(ip_hdr->ip_src.s_addr));
 		fs_add_uint64(fs, "success", 1);
 		fs_add_uint64(fs, "sport", ntohs(udp->uh_sport));
 		fs_add_uint64(fs, "dport", ntohs(udp->uh_dport));
@@ -350,6 +399,7 @@ void udp_multi_process_packet(const u_char *packet, UNUSED uint32_t len, fieldse
 		// But we will fix up saddr to be who we sent the probe to, in case you care.
 		fs_modify_string(fs, "saddr", make_ip_str(ip_inner->ip_dst.s_addr), 1);
 		fs_add_string(fs, "classification", (char*) "icmp-unreach", 0);
+		fs_add_uint64(fs, "probe", udp_multi_idx(ip_hdr->ip_src.s_addr));
 		fs_add_uint64(fs, "success", 0);
 		fs_add_null(fs, "sport");
 		fs_add_null(fs, "dport");
@@ -366,6 +416,7 @@ void udp_multi_process_packet(const u_char *packet, UNUSED uint32_t len, fieldse
 		fs_add_null(fs, "data");
 	} else {
 		fs_add_string(fs, "classification", (char *) "other", 0);
+		fs_add_uint64(fs, "probe", 0);
 		fs_add_uint64(fs, "success", 0);
 		fs_add_null(fs, "sport");
 		fs_add_null(fs, "dport");
@@ -477,6 +528,11 @@ int udp_multi_random_bytes(char *dst, int len, const unsigned char *charset,
 		*dst++ = charset[ (aesrand_getword(aes) & 0xFFFFFFFF) % charset_len ];
 	return i;
 }
+
+int udp_multi_idx(int addr) {
+  return addr % udp_multi_send_msg_len;
+}
+
 
 int udp_multi_template_build(udp_multi_payload_template_t *t, char *out, unsigned int len,
 	struct ip *ip_hdr, struct udphdr *udp_hdr, aesrand_t *aes)
@@ -761,6 +817,7 @@ udp_multi_payload_template_t * udp_multi_template_load(char *buf, unsigned int l
 
 static fielddef_t fields[] = {
 	{.name = "classification", .type="string", .desc = "packet classification"},
+    {.name = "probe", .type="int", .desc = "which packet was sent"},
 	{.name = "success", .type="int", .desc = "is response considered success"},
 	{.name = "sport", .type = "int", .desc = "UDP source port"},
 	{.name = "dport", .type = "int", .desc = "UDP destination port"},

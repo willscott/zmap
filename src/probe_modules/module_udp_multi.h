@@ -72,6 +72,8 @@ void udp_multi_template_free(udp_multi_payload_template_t *t);
 
 int udp_multi_template_build(udp_multi_payload_template_t *t, char *out, unsigned int len, struct ip *ip_hdr, struct udphdr *udp_hdr, aesrand_t *aes);
 
+int udp_multi_idx(int addr);
+
 int udp_multi_template_field_lookup(char *vname, udp_multi_payload_field_t *c);
 
 udp_multi_payload_template_t * udp_multi_template_load(char *buf, unsigned int len);
