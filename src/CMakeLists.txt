@@ -36,6 +36,7 @@ SET(LIB_SOURCES
 # ADD YOUR PROBE MODULE HERE
 SET(EXTRA_PROBE_MODULES
 	probe_modules/module_tcp_ackscan.c
+        probe_modules/module_udp_multi.c
 	)
 
 # ADD YOUR OUTPUT MODULE HERE

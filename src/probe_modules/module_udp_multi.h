@@ -21,7 +21,7 @@ typedef enum udp_multi_payload_field_type
 	UDP_RAND_DIGIT,
 	UDP_RAND_ALPHA,
 	UDP_RAND_ALPHANUM
-} udp_payload_field_type_t;
+} udp_multi_payload_field_type_t;
 
 typedef struct udp_multi_payload_field_type_def {
 	const char *name;

@@ -57,10 +57,10 @@ const char *udp_multi_unreach_strings[] = {
 const char *udp_multi_usage_error =
 	"unknown UDP probe specification (expected file:/path or text:STRING or hex:01020304 or template:/path or template-fields)";
 
-const unsigned char *charset_alphanum = (unsigned char *)"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-const unsigned char *charset_alpha    = (unsigned char *)"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-const unsigned char *charset_digit    = (unsigned char *)"0123456789";
-const unsigned char charset_all[257]  = {
+const unsigned char *charset_alphanum_m = (unsigned char *)"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+const unsigned char *charset_alpha_m    = (unsigned char *)"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const unsigned char *charset_digit_m    = (unsigned char *)"0123456789";
+const unsigned char charset_all_m[257]  = {
 	0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
 	0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e,
 	0x1f, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d,
@@ -89,7 +89,7 @@ probe_module_t module_udp_multi;
 
 // Field definitions for template parsing and displaying usage
 static uint32_t udp_multi_num_template_field_types = 12;
-static udp_multi_payload_field_type_def_t udp_payload_template_fields[] = {
+static udp_multi_payload_field_type_def_t udp_multi_payload_template_fields[] = {
 	{.name = "SADDR_N", .ftype=UDP_SADDR_N, .desc = "Source IP address in network byte order"},
 	{.name = "SADDR",   .ftype=UDP_SADDR_A, .desc = "Source IP address in dotted-quad format"},
 	{.name = "DADDR_N", .ftype=UDP_DADDR_N, .desc = "Destination IP address in network byte order"},
@@ -165,7 +165,7 @@ int udp_multi_global_initialize(struct state_conf *conf) {
 			exit(1);
 		}
 		free(udp_multi_send_msg);
-		udp_multi_send_msg = xmalloc(MAX_UDP_PAYLOAD_LEN);
+		udp_multi_send_msg = xmalloc(MAX_UDP_MULTI_PAYLOAD_LEN);
 		udp_multi_send_msg_len = fread(udp_multi_send_msg, 1, MAX_UDP_MULTI_PAYLOAD_LEN, inp);
 		fclose(inp);
 
@@ -235,7 +235,7 @@ int udp_multi_init_perthread(void* buf, macaddr_t *src,
 
 	struct udphdr *udp_header = (struct udphdr*)(&ip_header[1]);
 	len = sizeof(struct udphdr) + udp_multi_send_msg_len;
-	make_udp_multi_header(udp_header, zconf.target_port, len);
+	make_udp_header(udp_header, zconf.target_port, len);
 
 	char* payload = (char*)(&udp_header[1]);
 
@@ -429,7 +429,7 @@ int udp_multi_validate_packet(const struct ip *ip_hdr, uint32_t len,
 }
 
 // Add a new field to the template
-void udp_multi_template_add_field(udp_payload_template_t *t,
+void udp_multi_template_add_field(udp_multi_payload_template_t *t,
 	udp_multi_payload_field_type_t ftype, unsigned int length, char *data)
 {
 	udp_multi_payload_field_t *c;
@@ -514,19 +514,19 @@ int udp_multi_template_build(udp_multi_payload_template_t *t, char *out, unsigne
 				break;
 
 			case UDP_RAND_DIGIT:
-				p += udp_multi_random_bytes(p, c->length, charset_digit, 10, aes);
+				p += udp_multi_random_bytes(p, c->length, charset_digit_m, 10, aes);
 				break;
 
 			case UDP_RAND_ALPHA:
-				p += udp_multi_random_bytes(p, c->length, charset_alpha, 52, aes);
+				p += udp_multi_random_bytes(p, c->length, charset_alpha_m, 52, aes);
 				break;
 
 			case UDP_RAND_ALPHANUM:
-				p += udp_multi_random_bytes(p, c->length, charset_alphanum, 62, aes);
+				p += udp_multi_random_bytes(p, c->length, charset_alphanum_m, 62, aes);
 				break;
 
 			case UDP_RAND_BYTE:
-				p += udp_multi_random_bytes(p, c->length, charset_all, 256, aes);
+				p += udp_multi_random_bytes(p, c->length, charset_all_m, 256, aes);
 				break;
 
 			// These fields need to calculate size on their own

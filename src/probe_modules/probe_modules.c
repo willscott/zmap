@@ -22,6 +22,7 @@
 extern probe_module_t module_tcp_synscan;
 extern probe_module_t module_icmp_echo;
 extern probe_module_t module_udp;
+extern probe_module_t module_udp_multi;
 extern probe_module_t module_udp_dns;
 extern probe_module_t module_ntp;
 extern probe_module_t module_upnp;
@@ -35,7 +36,8 @@ probe_module_t* probe_modules[] = {
 	&module_udp_dns,
     &module_ntp,
     &module_upnp,
-    &module_tcp_ackscan
+    &module_tcp_ackscan,
+    &module_udp_multi
 	// ADD YOUR MODULE HERE
 };
 
