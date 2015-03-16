@@ -159,10 +159,10 @@ int udp_multi_global_initialize(struct state_conf *conf) {
 
 	} else if (strcmp(args, "file") == 0 || strcmp(args, "template") == 0) {
         i = 0;
-        pc = strchr(c, ',')
+        pc = strchr(c, ',');
         while (pc != NULL) {
           i++;
-          pc = strchr(pc + 1, ',')
+          pc = strchr(pc + 1, ',');
         }
         // Multi-file.
         if (i > 0) {
@@ -173,7 +173,7 @@ int udp_multi_global_initialize(struct state_conf *conf) {
           udp_multi_send_msg_len_arr = xmalloc((i + 1) * sizeof(int));
           i = 0;
           pca = c;
-          pc = strchr(c, ',')
+          pc = strchr(c, ',');
           while (pc != NULL) {
             pc[0] = '\0';
             inp = fopen(pca, "rb");
@@ -188,7 +188,7 @@ int udp_multi_global_initialize(struct state_conf *conf) {
 
             i++;
             pca = pc + 1;
-            pc = strchr(pc + 1, ',')
+            pc = strchr(pc + 1, ',');
           }
           free(args);
 	      return EXIT_SUCCESS;
