@@ -107,7 +107,7 @@ static udp_multi_payload_field_type_def_t udp_multi_payload_template_fields[] = 
 
 void udp_multi_set_num_ports(int x)
 {
-    fprintf(stderr, "num ports is %d\n", x);
+    //fprintf(stderr, "num ports is %d\n", x);
 	num_ports = x;
 }
 
@@ -176,8 +176,9 @@ int udp_multi_global_initialize(struct state_conf *conf) {
           pca = c;
           pc = strchr(c, ',');
           while (i < udp_multi_send_msg_len) {
-            pc[0] = '\0';
-            fprintf(stderr, "Buffering packet %s\n", pca);
+            if (pc != NULL) {
+              pc[0] = '\0';
+            }
             inp = fopen(pca, "rb");
 		    if (!inp) {
 			  free(args);
@@ -186,9 +187,13 @@ int udp_multi_global_initialize(struct state_conf *conf) {
 		      exit(1);
 		    }
 		    udp_multi_send_msg_len_arr[i] = fread(udp_multi_send_msg+(i*MAX_UDP_MULTI_PAYLOAD_LEN), 1, MAX_UDP_MULTI_PAYLOAD_LEN, inp);
+ 	           fprintf(stderr, "Read %s of len %u\n", pca, udp_multi_send_msg_len_arr[i]);
 		    fclose(inp);
 
             i++;
+            if (i == udp_multi_send_msg_len) {
+              break;
+            }
             pca = pc + 1;
             pc = strchr(pca, ',');
           }
@@ -332,11 +337,14 @@ int udp_multi_make_packet(void *buf, ipaddr_n_t src_ip, ipaddr_n_t dst_ip,
 		udp_header->uh_ulen = ntohs(sizeof(struct udphdr) + payload_len);
 	} else if (udp_multi_send_msg_len_arr) {
       // Substitute appropriate pkt.
-      uint_32 payload_idx = udp_multi_idx(dst_ip);
+      uint32_t payload_idx = udp_multi_idx(dst_ip);
       memcpy((char*)(&udp_header[1]), &udp_multi_send_msg[payload_idx * MAX_UDP_MULTI_PAYLOAD_LEN], udp_multi_send_msg_len_arr[payload_idx]);
     
       ip_header->ip_len   = htons(sizeof(struct ip) + sizeof(struct udphdr) + udp_multi_send_msg_len_arr[payload_idx]);
       udp_header->uh_ulen = ntohs(sizeof(struct udphdr) + udp_multi_send_msg_len_arr[payload_idx]);
+      module_udp_multi.packet_length = sizeof(struct ether_header) + sizeof(struct ip)
+				+ sizeof(struct udphdr) + udp_multi_send_msg_len_arr[payload_idx];
+      //fprintf(stderr, "Prepared pkt %u as %u bytes\n", payload_idx, udp_multi_send_msg_len_arr[payload_idx]);
     }
 
 	ip_header->ip_sum = 0;
@@ -532,6 +540,7 @@ int udp_multi_random_bytes(char *dst, int len, const unsigned char *charset,
 }
 
 uint64_t udp_multi_idx(uint32_t addr) {
+  //fprintf(stderr, "addr %u across %u is %u\n", addr, udp_multi_send_msg_len, addr % udp_multi_send_msg_len);
   return addr % udp_multi_send_msg_len;
 }
 
