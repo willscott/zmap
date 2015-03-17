@@ -529,7 +529,7 @@ int udp_multi_random_bytes(char *dst, int len, const unsigned char *charset,
 	return i;
 }
 
-int udp_multi_idx(int addr) {
+uint64_t udp_multi_idx(uint32_t addr) {
   return addr % udp_multi_send_msg_len;
 }
 
