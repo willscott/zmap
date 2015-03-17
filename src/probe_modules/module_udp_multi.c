@@ -107,6 +107,7 @@ static udp_multi_payload_field_type_def_t udp_multi_payload_template_fields[] = 
 
 void udp_multi_set_num_ports(int x)
 {
+    fprintf(stderr, "num ports is %d\n", x);
 	num_ports = x;
 }
 
@@ -169,13 +170,14 @@ int udp_multi_global_initialize(struct state_conf *conf) {
           free(udp_multi_send_msg);
           udp_multi_send_msg_len = i + 1;
           fprintf(stderr, "Round robin of %d packets.\n\n", udp_multi_send_msg_len);
-		  udp_multi_send_msg = xmalloc((i + 1) * MAX_UDP_MULTI_PAYLOAD_LEN);
-          udp_multi_send_msg_len_arr = xmalloc((i + 1) * sizeof(int));
+		  udp_multi_send_msg = xmalloc(udp_multi_send_msg_len * MAX_UDP_MULTI_PAYLOAD_LEN);
+          udp_multi_send_msg_len_arr = xmalloc(udp_multi_send_msg_len * sizeof(int));
           i = 0;
           pca = c;
           pc = strchr(c, ',');
-          while (pc != NULL) {
+          while (i < udp_multi_send_msg_len) {
             pc[0] = '\0';
+            fprintf(stderr, "Buffering packet %s\n", pca);
             inp = fopen(pca, "rb");
 		    if (!inp) {
 			  free(args);
@@ -188,7 +190,7 @@ int udp_multi_global_initialize(struct state_conf *conf) {
 
             i++;
             pca = pc + 1;
-            pc = strchr(pc + 1, ',');
+            pc = strchr(pca, ',');
           }
           free(args);
 	      return EXIT_SUCCESS;
@@ -330,7 +332,7 @@ int udp_multi_make_packet(void *buf, ipaddr_n_t src_ip, ipaddr_n_t dst_ip,
 		udp_header->uh_ulen = ntohs(sizeof(struct udphdr) + payload_len);
 	} else if (udp_multi_send_msg_len_arr) {
       // Substitute appropriate pkt.
-      int payload_idx = udp_multi_idx(dst_ip);
+      uint_32 payload_idx = udp_multi_idx(dst_ip);
       memcpy((char*)(&udp_header[1]), &udp_multi_send_msg[payload_idx * MAX_UDP_MULTI_PAYLOAD_LEN], udp_multi_send_msg_len_arr[payload_idx]);
     
       ip_header->ip_len   = htons(sizeof(struct ip) + sizeof(struct udphdr) + udp_multi_send_msg_len_arr[payload_idx]);
