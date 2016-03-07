@@ -26,6 +26,7 @@
 #include "module_udp.h"
 
 #define MAX_UDP_PAYLOAD_LEN 1472
+#define ICMP_UNREACH_HEADER_SIZE 8
 #define UNUSED __attribute__((unused))
 
 static char *udp_send_msg = NULL;
@@ -300,21 +301,22 @@ void udp_print_packet(FILE *fp, void* packet)
 	struct ether_header *ethh = (struct ether_header *) packet;
 	struct ip *iph = (struct ip *) &ethh[1];
     struct udphdr *udph = (struct udphdr*)(&iph[1]); 
-	fprintf(fp, "udp { source: %u | dest: %u | checksum: %u }\n",
+	fprintf(fp, "udp { source: %u | dest: %u | checksum: %#04X }\n",
 		ntohs(udph->uh_sport),
 		ntohs(udph->uh_dport),
-		ntohl(udph->uh_sum));
+		ntohs(udph->uh_sum));
 	fprintf_ip_header(fp, iph);
 	fprintf_eth_header(fp, ethh);
 	fprintf(fp, "------------------------------------------------------\n");
 }
 
-void udp_process_packet(const u_char *packet, UNUSED uint32_t len, fieldset_t *fs)
+void udp_process_packet(const u_char *packet, UNUSED uint32_t len, fieldset_t *fs,
+       __attribute__((unused)) uint32_t *validation)
 {
 	struct ip *ip_hdr = (struct ip *) &packet[sizeof(struct ether_header)];
 	if (ip_hdr->ip_p == IPPROTO_UDP) {
 		struct udphdr *udp = (struct udphdr *) ((char *) ip_hdr + ip_hdr->ip_hl * 4);
-		fs_add_string(fs, "classification", (char*) "udp", 0);
+		fs_add_constchar(fs, "classification", "udp");
 		fs_add_uint64(fs, "success", 1);
 		fs_add_uint64(fs, "sport", ntohs(udp->uh_sport));
 		fs_add_uint64(fs, "dport", ntohs(udp->uh_dport));
@@ -345,7 +347,7 @@ void udp_process_packet(const u_char *packet, UNUSED uint32_t len, fieldset_t *f
 		}
 	} else if (ip_hdr->ip_p == IPPROTO_ICMP) {
 		struct icmp *icmp = (struct icmp *) ((char *) ip_hdr + ip_hdr->ip_hl * 4);
-		struct ip *ip_inner = (struct ip *) &icmp[1];
+		struct ip *ip_inner = (struct ip *) ((char *) icmp + ICMP_UNREACH_HEADER_SIZE);
 		// ICMP unreach comes from another server (not the one we sent a probe to);
 		// But we will fix up saddr to be who we sent the probe to, in case you care.
 		fs_modify_string(fs, "saddr", make_ip_str(ip_inner->ip_dst.s_addr), 1);
@@ -379,7 +381,16 @@ void udp_process_packet(const u_char *packet, UNUSED uint32_t len, fieldset_t *f
 }
 
 int udp_validate_packet(const struct ip *ip_hdr, uint32_t len,
-		__attribute__((unused))uint32_t *src_ip, uint32_t *validation)
+		uint32_t *src_ip, uint32_t *validation)
+
+{
+	return udp_do_validate_packet(ip_hdr, len, src_ip, validation, num_ports);
+}
+
+
+int udp_do_validate_packet(const struct ip *ip_hdr, uint32_t len,
+		__attribute__((unused))uint32_t *src_ip, uint32_t *validation,
+		int num_ports)
 {
 	uint16_t dport, sport;
 	if (ip_hdr->ip_p == IPPROTO_UDP) {
@@ -394,7 +405,7 @@ int udp_validate_packet(const struct ip *ip_hdr, uint32_t len,
 	} else if (ip_hdr->ip_p == IPPROTO_ICMP) {
 		// UDP can return ICMP Destination unreach
 		// IP( ICMP( IP( UDP ) ) ) for a destination unreach
-		uint32_t min_len = 4*ip_hdr->ip_hl + sizeof(struct icmp)
+		uint32_t min_len = 4*ip_hdr->ip_hl + ICMP_UNREACH_HEADER_SIZE
 				+ sizeof(struct ip) + sizeof(struct udphdr);
 		if (len < min_len) {
 			// Not enough information for us to validate
@@ -406,7 +417,7 @@ int udp_validate_packet(const struct ip *ip_hdr, uint32_t len,
 			return 0;
 		}
 
-		struct ip *ip_inner = (struct ip*) &icmp[1];
+		struct ip *ip_inner = (struct ip*) ((char *) icmp + ICMP_UNREACH_HEADER_SIZE);
 		// Now we know the actual inner ip length, we should recheck the buffer
 		if (len < 4*ip_inner->ip_hl - sizeof(struct ip) + min_len) {
 			return 0;

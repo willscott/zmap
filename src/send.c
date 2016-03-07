@@ -37,15 +37,14 @@
 static inline int send_packet(sock_t sock, void *buf, int len, uint32_t idx);
 static inline int send_run_init(sock_t sock);
 
-
 // Include the right implementations
 #if defined(PFRING)
 #include "send-pfring.h"
-#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__)
+#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__DragonFly__)
 #include "send-bsd.h"
 #else /* LINUX */
 #include "send-linux.h"
-#endif /* __APPLE__ || __FreeBSD__ || __NetBSD__ */
+#endif /* __APPLE__ || __FreeBSD__ || __NetBSD__ || __DragonFly__ */
 
 // The iterator over the cyclic group
 
@@ -64,7 +63,6 @@ static uint16_t num_src_ports;
 // global sender initialize (not thread specific)
 iterator_t* send_init(void)
 {
-
 	// generate a new primitive root and starting position
 	iterator_t *it;
 	it = iterator_init(zconf.senders, zconf.shard_num, zconf.total_shards);
@@ -91,7 +89,8 @@ iterator_t* send_init(void)
 		uint32_t ip_last = ntohl(srcip_last);
 		assert(ip_first && ip_last);
 		assert(ip_last > ip_first);
-		uint32_t offset = (uint32_t) (aesrand_getword(zconf.aes) & 0xFFFFFFFF);
+		uint32_t offset = (uint32_t) (aesrand_getword(zconf.aes)
+						& 0xFFFFFFFF);
 		srcip_offset = offset % (srcip_last - srcip_first);
 		num_src_addrs = ip_last - ip_first + 1;
 	}
@@ -105,19 +104,22 @@ iterator_t* send_init(void)
 	// global initialization for send module
 	assert(zconf.probe_module);
 	if (zconf.probe_module->global_initialize) {
-		zconf.probe_module->global_initialize(&zconf);
+		if (zconf.probe_module->global_initialize(&zconf)) {
+        		log_fatal("send", "global initialization for probe module failed.");
+	        }
 	}
 
 	// concert specified bandwidth to packet rate
 	if (zconf.bandwidth > 0) {
-		int pkt_len = zconf.probe_module->packet_length;
+		size_t pkt_len = zconf.probe_module->packet_length;
 		pkt_len *= 8;
-		pkt_len += 8*24;	// 7 byte MAC preamble, 1 byte Start frame,
-		                        // 4 byte CRC, 12 byte inter-frame gap
+		pkt_len += 8*24; // 7 byte MAC preamble, 1 byte Start frame,
+		                 // 4 byte CRC, 12 byte inter-frame gap
 		if (pkt_len < 84*8) {
 			pkt_len = 84*8;
 		}
-		if (zconf.bandwidth / pkt_len > 0xFFFFFFFF) {
+        // rate is a uint32_t so, don't overflow
+		if (zconf.bandwidth / pkt_len > 0xFFFFFFFFu) {
 			zconf.rate = 0;
 		} else {
 			zconf.rate = zconf.bandwidth / pkt_len;
@@ -173,7 +175,7 @@ static inline ipaddr_n_t get_src_ip(ipaddr_n_t dst, int local_offset)
 // one sender thread
 int send_run(sock_t st, shard_t *s)
 {
-	log_trace("send", "send thread started");
+	log_debug("send", "send thread started");
 	pthread_mutex_lock(&send_mutex);
 	// Allocate a buffer to hold the outgoing packet
 	char buf[MAX_PACKET_SIZE];
@@ -200,8 +202,9 @@ int send_run(sock_t st, shard_t *s)
 			mac_buf);
 	void *probe_data;
 	if (zconf.probe_module->thread_initialize) {
-		zconf.probe_module->thread_initialize(buf, zconf.hw_mac, zconf.gw_mac,
-					      zconf.target_port, &probe_data);
+		zconf.probe_module->thread_initialize(buf, zconf.hw_mac,
+						zconf.gw_mac,
+						zconf.target_port, &probe_data);
 	}
 	pthread_mutex_unlock(&send_mutex);
 
@@ -213,14 +216,27 @@ int send_run(sock_t st, shard_t *s)
 	int interval = 0;
 	uint32_t max_targets = s->state.max_targets;
 	volatile int vi;
+    struct timespec ts, rem;
+    double send_rate = (double) zconf.rate / zconf.senders;
+    double slow_rate = 50; // packets per seconds per thread
+			   // at which it uses the slow methos
+    long nsec_per_sec = 1000 * 1000 * 1000;
+    long long sleep_time = nsec_per_sec;
 	if (zconf.rate > 0) {
-		// estimate initial rate
 		delay = 10000;
-		for (vi = delay; vi--; )
-			;
-		delay *= 1 / (now() - last_time) / (zconf.rate / zconf.senders);
-		interval = (zconf.rate / zconf.senders) / 20;
-		last_time = now();
+
+        if (send_rate < slow_rate) {
+            // set the inital time difference
+            sleep_time = nsec_per_sec / send_rate;
+            last_time = now() - (1.0 / send_rate);
+        } else {
+		    // estimate initial rate
+		    for (vi = delay; vi--; )
+		    	;
+		    delay *= 1 / (now() - last_time) / (zconf.rate / zconf.senders);
+		    interval = (zconf.rate / zconf.senders) / 20;
+		    last_time = now();
+        }
 	}
 	uint32_t curr = shard_get_cur_ip(s);
 	int attempts = zconf.num_retries + 1;
@@ -229,17 +245,30 @@ int send_run(sock_t st, shard_t *s)
 		// adaptive timing delay
 		if (delay > 0) {
 			count++;
-			for (vi = delay; vi--; )
-				;
-			if (!interval || (count % interval == 0)) {
-				double t = now();
-				delay *= (double)(count - last_count)
-					/ (t - last_time) / (zconf.rate / zconf.senders);
-				if (delay < 1)
-					delay = 1;
-				last_count = count;
-				last_time = t;
-			}
+            if (send_rate < slow_rate) {
+                double t = now();
+                double last_rate = (1.0 / (t - last_time));
+
+                sleep_time *= ((last_rate / send_rate) + 1) / 2;
+                ts.tv_sec = sleep_time / nsec_per_sec;
+                ts.tv_nsec = sleep_time % nsec_per_sec;
+                log_debug("sleep", "sleep for %d sec, %ld nanoseconds",
+				ts.tv_sec, ts.tv_nsec);
+                while (nanosleep(&ts, &rem) == -1) {}
+                last_time = t;
+            } else {
+			    for (vi = delay; vi--; )
+			    	;
+			    if (!interval || (count % interval == 0)) {
+			    	double t = now();
+			    	delay *= (double)(count - last_count)
+			    		/ (t - last_time) / (zconf.rate / zconf.senders);
+			    	if (delay < 1)
+			    		delay = 1;
+			    	last_count = count;
+			    	last_time = t;
+			    }
+            }
 		}
 		if (zrecv.complete) {
 			s->cb(s->id, s->arg);
@@ -247,7 +276,7 @@ int send_run(sock_t st, shard_t *s)
 		}
 		if (s->state.sent >= max_targets) {
 			s->cb(s->id, s->arg);
-			log_trace("send", "send thread %hhu finished (max targets of %u reached)", s->id, max_targets);
+			log_debug("send", "send thread %hhu finished (max targets of %u reached)", s->id, max_targets);
 			break;
 		}
 		if (zconf.max_runtime && zconf.max_runtime <= now() - zsend.start) {
@@ -256,7 +285,7 @@ int send_run(sock_t st, shard_t *s)
 		}
 		if (curr == 0) {
 			s->cb(s->id, s->arg);
-			log_trace("send", "send thread %hhu finished, shard depleted", s->id);
+			log_debug("send", "send thread %hhu finished, shard depleted", s->id);
 			break;
 		}
 		s->state.sent++;
@@ -265,8 +294,8 @@ int send_run(sock_t st, shard_t *s)
 
 		  	uint32_t validation[VALIDATE_BYTES/sizeof(uint32_t)];
 			validate_gen(src_ip, curr, (uint8_t *)validation);
-			zconf.probe_module->make_packet(buf, src_ip, curr, validation, i, probe_data);
-
+			zconf.probe_module->make_packet(buf, src_ip, curr,
+					validation, i, probe_data);
 			if (zconf.dryrun) {
 				lock_file(stdout);
 				zconf.probe_module->print_packet(stdout, buf);
@@ -274,17 +303,25 @@ int send_run(sock_t st, shard_t *s)
 			} else {
 				int length = zconf.probe_module->packet_length;
 				void *contents = buf + zconf.send_ip_pkts*sizeof(struct ether_header);
+				int any_sends_successful = 0;
 				for (int i = 0; i < attempts; ++i) {
 					int rc = send_packet(st, contents, length, idx);
 					if (rc < 0) {
 						struct in_addr addr;
 						addr.s_addr = curr;
-						log_debug("send", "send_packet failed for %s. %s",
-								  inet_ntoa(addr), strerror(errno));
-						s->state.failures++;
+						char addr_str_buf[INET_ADDRSTRLEN];
+						const char *addr_str = inet_ntop(AF_INET, &addr, addr_str_buf, INET_ADDRSTRLEN);
+						if (addr_str != NULL) {
+							log_debug("send", "send_packet failed for %s. %s",
+								addr_str, strerror(errno));
+						}
 					} else {
+						any_sends_successful = 1;
 						break;
 					}
+				}
+				if (!any_sends_successful) {
+					s->state.failures++;
 				}
 				idx++;
 				idx &= 0xFF;

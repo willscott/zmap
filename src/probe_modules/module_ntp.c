@@ -1,3 +1,11 @@
+/*
+ * ZMap Copyright 2013 Regents of the University of Michigan
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not
+ * use this file except in compliance with the License. You may obtain a copy
+ * of the License at http://www.apache.org/licenses/LICENSE-2.0
+ */
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdint.h>
@@ -13,6 +21,7 @@
 #include "logger.h"
 
 #define MAX_NTP_PAYLOAD_LEN 1472
+#define ICMP_UNREACH_HEADER_SIZE 8
 #define UNUSED __attribute__((unused))
 
 probe_module_t module_ntp;
@@ -57,7 +66,8 @@ int ntp_validate_packet(const struct ip *ip_hdr, uint32_t len,
 }
 
 void ntp_process_packet(const u_char *packet, 
-		__attribute__((unused)) uint32_t len, fieldset_t *fs)
+		__attribute__((unused)) uint32_t len, fieldset_t *fs,
+        __attribute__((unused)) uint32_t *validation)
 {
         struct ip *ip_hdr = (struct ip*) &packet[sizeof(struct ether_header)];
         uint64_t temp64;
@@ -117,7 +127,7 @@ void ntp_process_packet(const u_char *packet,
 		}
         } else if (ip_hdr->ip_p ==  IPPROTO_ICMP) {
                 struct icmp *icmp = (struct icmp *) ((char *) ip_hdr + ip_hdr -> ip_hl * 4);
-                struct ip *ip_inner = (struct ip *) &icmp[1];
+                struct ip *ip_inner = (struct ip *) ((char*) icmp + ICMP_UNREACH_HEADER_SIZE);
 
                 fs_modify_string(fs, "saddr", make_ip_str(ip_inner->ip_dst.s_addr), 1);
                 fs_add_string(fs, "classification", (char*) "icmp-unreach", 0);
@@ -207,10 +217,10 @@ void ntp_print_packet(FILE *fp, void *packet){
         struct ntphdr *ntph = (struct ntphdr *) &udph[1];
         fprintf(fp, "ntp { LI_VN_MODE: %u | stratum: %u | poll: %u }\n",
         ntph->LI_VN_MODE, ntph->stratum, ntph->poll);
-        fprintf(fp, "udp { source: %u | dest: %u | checksum: %u }\n",
+        fprintf(fp, "udp { source: %u | dest: %u | checksum: %#04X }\n",
         ntohs(udph->uh_sport),
         ntohs(udph->uh_dport),
-        ntohl(udph->uh_sum));
+        ntohs(udph->uh_sum));
         fprintf_ip_header(fp, iph);
         fprintf_eth_header(fp, ethh);
         fprintf(fp, "-------------------------------------------------\n");
@@ -251,6 +261,7 @@ probe_module_t module_ntp = {
         .validate_packet = &ntp_validate_packet,
         .process_packet = &ntp_process_packet,
         .close = &udp_global_cleanup,
+        .output_type = OUTPUT_TYPE_STATIC,
         .fields = fields,
         .numfields = sizeof(fields)/sizeof(fields[0])
 };

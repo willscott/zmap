@@ -1,4 +1,11 @@
-//don't forget copyright license here 
+/*
+ * ZMap Copyright 2013 Regents of the University of Michigan
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not
+ * use this file except in compliance with the License. You may obtain a copy
+ * of the License at http://www.apache.org/licenses/LICENSE-2.0
+ */
+
 #include "../state.h"
 #include "../fieldset.h"
 
@@ -29,9 +36,5 @@ struct __attribute__((__packed__)) ntphdr{//typedef
    
    
 };
-
-void ntp_process_packet(const u_char *packet, __attribute__((unused)) uint32_t len, fieldset_t *fs);
-int ntp_init_perthread(void *buf, macaddr_t *src, macaddr_t *gw, __attribute__((unused)) port_h_t dst_port, void **arg);
-void ntp_print_packet (FILE *fp, void *packet);
 
 #endif

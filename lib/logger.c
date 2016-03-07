@@ -5,6 +5,7 @@
  * use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0
  */
+
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdio.h>
@@ -62,22 +63,22 @@ static const char* color_for_level(enum LogLevel level)
 static int LogLogVA(enum LogLevel level, const char *loggerName,
 		const char *logMessage, va_list args)
 {
-	if (!log_output_stream) {
-		log_output_stream = stderr;
-	}
-	// if logging to a shared output channel, then use a global
-	// lock accross ZMap. Otherwise, if we're logging to a file,
-	// only lockin with the module, in order to avoid having
-	// corrupt log entries.
-	if (log_output_stream == stdout || log_output_stream == stderr) {
-		lock_file(log_output_stream);
-	} else {
-		pthread_mutex_lock(&mutex);
-	}
-	if (color) {
-		COLOR(color_for_level(level));
-	}
 	if (level <= log_output_level) {
+		if (!log_output_stream) {
+			log_output_stream = stderr;
+		}
+		// if logging to a shared output channel, then use a global
+		// lock accross ZMap. Otherwise, if we're logging to a file,
+		// only lockin with the module, in order to avoid having
+		// corrupt log entries.
+		if (log_output_stream == stdout || log_output_stream == stderr) {
+			lock_file(log_output_stream);
+		} else {
+			pthread_mutex_lock(&mutex);
+		}
+		if (color) {
+			COLOR(color_for_level(level));
+		}
 
 		const char *levelName = log_level_name[level];
 		struct timeval now;
@@ -97,16 +98,15 @@ static int LogLogVA(enum LogLevel level, const char *loggerName,
 		if (loggerName || logMessage) {
 			fputs("\n", log_output_stream);
 		}
-
-	}
-	if (color) {
-		COLOR(RESET);
-	}
-	fflush(log_output_stream);
-	if (log_output_stream == stdout || log_output_stream == stderr) {
-		unlock_file(log_output_stream);
-	} else {
-		pthread_mutex_unlock(&mutex);
+		if (color) {
+			COLOR(RESET);
+		}
+		fflush(log_output_stream);
+		if (log_output_stream == stdout || log_output_stream == stderr) {
+			unlock_file(log_output_stream);
+		} else {
+			pthread_mutex_unlock(&mutex);
+		}
 	}
 	return EXIT_SUCCESS;
 }
@@ -188,6 +188,7 @@ int log_debug(const char *name, const char *message, ...) {
 	return ret;
 }
 
+#ifdef DEBUG
 extern int log_trace(const char *name, const char *message, ...) {
 	va_list va;
 	va_start(va, message);
@@ -206,8 +207,8 @@ extern int log_trace(const char *name, const char *message, ...) {
 	free(prefixed);
 
 	return ret;
-
 }
+#endif
 
 int log_init(FILE *stream, enum LogLevel level,
 		int syslog_enabled, const char *appname)
@@ -221,6 +222,13 @@ int log_init(FILE *stream, enum LogLevel level,
 		color = 1;
 	}
 	return 0;
+}
+
+void check_and_log_file_error(FILE *file, const char*name)
+{
+	if (ferror(file)) {
+		log_fatal(name, "unable to write to file");
+	}
 }
 
 double now(void)

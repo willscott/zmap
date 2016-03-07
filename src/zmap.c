@@ -55,7 +55,6 @@ static int32_t distrib_func(pfring_zc_pkt_buff *pkt, void *arg) {
 }
 #endif
 
-
 pthread_mutex_t recv_ready_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 typedef struct send_arg {
@@ -74,6 +73,13 @@ typedef struct mon_start_arg {
 	pthread_mutex_t *recv_ready_mutex;
 } mon_start_arg_t;
 
+const char *default_help_text = "By default, ZMap prints out unique, successful"
+	"IP addresses (e.g., SYN-ACK from a TCP SYN scan) "
+	"in ASCII form (e.g., 192.168.1.5) to stdout or the specified output "
+	"file. Internally this is handled by the \"csv\" output module and is "
+	"equivalent to running zmap --output-module=csv --output-fields=saddr "
+	"--output-filter=\"success = 1 && repeat = 0\".";
+
 static void enforce_range(const char *name, int v, int min, int max)
 {
 	if (check_range(v, min, max) == EXIT_FAILURE) {
@@ -85,7 +91,7 @@ static void enforce_range(const char *name, int v, int min, int max)
 static void* start_send(void *arg)
 {
 	send_arg_t *s = (send_arg_t *) arg;
-	log_trace("zmap", "Pinning a send thread to core %u", s->cpu);
+	log_debug("zmap", "Pinning a send thread to core %u", s->cpu);
 	set_cpu(s->cpu);
 	send_run(s->sock, s->shard);
 	free(s);
@@ -95,7 +101,7 @@ static void* start_send(void *arg)
 static void* start_recv(void *arg)
 {
 	recv_arg_t *r = (recv_arg_t *) arg;
-	log_trace("zmap", "Pinning receive thread to core %u", r->cpu);
+	log_debug("zmap", "Pinning receive thread to core %u", r->cpu);
 	set_cpu(r->cpu);
 	recv_run(&recv_ready_mutex);
 	return NULL;
@@ -104,7 +110,7 @@ static void* start_recv(void *arg)
 static void *start_mon(void *arg)
 {
 	mon_start_arg_t *mon_arg = (mon_start_arg_t *) arg;
-	log_trace("zmap", "Pinning monitor thread to core %u", mon_arg->cpu);
+	log_debug("zmap", "Pinning monitor thread to core %u", mon_arg->cpu);
 	set_cpu(mon_arg->cpu);
 	monitor_run(mon_arg->it, mon_arg->recv_ready_mutex);
 	free(mon_arg);
@@ -156,8 +162,10 @@ static void start_zmap(void)
 	// Initialization
 	log_info("zmap", "output module: %s", zconf.output_module->name);
 	if (zconf.output_module && zconf.output_module->init) {
-		zconf.output_module->init(&zconf, zconf.output_fields,
-				zconf.output_fields_len);
+		if (zconf.output_module->init(&zconf, zconf.output_fields,
+				zconf.output_fields_len)) {
+            log_fatal("zmap", "output module did not initialize successfully.");
+        }
 	}
 
 	iterator_t *it = send_init();
@@ -221,11 +229,13 @@ static void start_zmap(void)
 		}
 	}
 	log_debug("zmap", "%d sender threads spawned", zconf.senders);
-	if (!zconf.quiet || zconf.status_updates_file) {
-		mon_start_arg_t *mon_arg = xmalloc(sizeof(mon_start_arg_t));
-		mon_arg->it = it;
-		mon_arg->recv_ready_mutex = &recv_ready_mutex;
-		mon_arg->cpu = zconf.pin_cores[cpu % zconf.pin_cores_len];
+
+	monitor_init();
+	mon_start_arg_t *mon_arg = xmalloc(sizeof(mon_start_arg_t));
+	mon_arg->it = it;
+	mon_arg->recv_ready_mutex = &recv_ready_mutex;
+	mon_arg->cpu = zconf.pin_cores[cpu % zconf.pin_cores_len];
+	{
 		int r = pthread_create(&tmon, NULL, start_mon, mon_arg);
 		if (r != 0) {
 			log_fatal("zmap", "unable to create monitor thread");
@@ -265,9 +275,6 @@ static void start_zmap(void)
 	}
 
 	// finished
-	if (zconf.summary) {
-		summary();
-	}
 #ifdef JSON
 	if (zconf.metadata_filename) {
 		json_metadata(zconf.metadata_file);
@@ -332,7 +339,7 @@ int main(int argc, char *argv[])
 		log_location = fopen(zconf.log_file, "w");
 	} else if (zconf.log_directory) {
 		time_t now;
-    	time(&now);
+		time(&now);
 		struct tm *local = localtime(&now);
 		char path[100];
 		strftime(path, 100, "zmap-%Y-%m-%dT%H%M%S%z.log", local);
@@ -350,7 +357,7 @@ int main(int argc, char *argv[])
 				strerror(errno));
 	}
 	log_init(log_location, zconf.log_level, zconf.syslog, "zmap");
-	log_trace("zmap", "zmap main thread started");
+	log_debug("zmap", "zmap main thread started");
 	if (config_loaded) {
 		log_debug("zmap", "Loaded configuration file %s",
 				args.config_arg);
@@ -362,14 +369,7 @@ int main(int argc, char *argv[])
 	}
 	// parse the provided probe and output module s.t. that we can support
 	// other command-line helpers (e.g. probe help)
-	log_trace("zmap", "requested ouput-module: %s", args.output_module_arg);
-
-	// we changed output module setup after the original version of ZMap was
-	// made public. After this setup was removed, many of the original
-	// output modules became unnecessary. However, in order to support
-	// backwards compatibility, we still allows this output-modules to be
-	// specified and then map these into new-style output modules and warn
-	// users that they need to be switching to the new module interface.
+	log_debug("zmap", "requested ouput-module: %s", args.output_module_arg);
 
 	// zmap's default behavior is to provide a simple file of the unique IP
 	// addresses that responded successfully.
@@ -379,67 +379,11 @@ int main(int argc, char *argv[])
 		zconf.raw_output_fields = (char*) "saddr";
 		zconf.filter_duplicates = 1;
 		zconf.filter_unsuccessful = 1;
-	} else if (!strcmp(args.output_module_arg, "simple_file")) {
-		log_warn("zmap", "the simple_file output interface has been deprecated and "
-				 "will be removed in the future. Users should use the csv "
-				 "output module. Newer scan options such as output-fields "
-				 "are not supported with this output module.");
-		zconf.output_module = get_output_module_by_name("csv");
-		zconf.raw_output_fields = (char*) "saddr";
-		zconf.filter_duplicates = 1;
-		zconf.filter_unsuccessful = 1;
-	} else if (!strcmp(args.output_module_arg, "extended_file")) {
-		log_warn("zmap", "the extended_file output interface has been deprecated and "
-				 "will be removed in the future. Users should use the csv "
-				 "output module. Newer scan options such as output-fields "
-				 "are not supported with this output module.");
-		zconf.output_module = get_output_module_by_name("csv");
-		zconf.raw_output_fields = (char*) "classification, saddr, "
-						  "daddr, sport, dport, "
-						  "seqnum, acknum, cooldown, "
-						  "repeat, timestamp-str";
-		zconf.filter_duplicates = 0;
-	} else if (!strcmp(args.output_module_arg, "redis")) {
-		log_warn("zmap", "the redis output interface has been deprecated and "
-				 "will be removed in the future. Users should "
-				 "either use redis-packed or redis-json in the "
-				 "future.");
-		zconf.output_module = get_output_module_by_name("redis-packed");
-		if (!zconf.output_module) {
-			log_fatal("zmap", "%s: specified output module (%s) does not exist\n",
-					CMDLINE_PARSER_PACKAGE, args.output_module_arg);
-		}
-		zconf.raw_output_fields = (char*) "saddr";
-		zconf.filter_duplicates = 1;
-		zconf.filter_unsuccessful = 1;
-		if (args.output_fields_given) {
-			log_fatal("redis", "module does not support user defined "
-					"output fields");
-		}
-
-		if (args.output_filter_given) {
-			log_fatal("redis", "module does not support user defined "
-					"filters.");
-		}
-	} else if (!strcmp(args.output_module_arg, "csvredis"))  {
-		if (args.output_fields_given) {
-			log_fatal("csvredis", "module does not support user defined "
-					"output fields");
-		}
-		// output all available fields to the CSV file
-		zconf.raw_output_fields = (char*) "*";
-		// module does not support filtering
-		if (args.output_filter_given) {
-			log_fatal("csvredis", "module does not support user defined "
-					"filters.");
-		}
-		zconf.output_module = get_output_module_by_name("csvredis");
 	} else {
 		zconf.output_module = get_output_module_by_name(args.output_module_arg);
 		if (!zconf.output_module) {
-		  log_fatal("zmap", "%s: specified output module (%s) does not exist\n",
+		  log_fatal("zmap", "specified output module (%s) does not exist\n",
 				args.output_module_arg);
-		  exit(EXIT_FAILURE);
 		}
 	}
 	zconf.probe_module = get_probe_module_by_name(args.probe_module_arg);
@@ -448,6 +392,17 @@ int main(int argc, char *argv[])
 				args.probe_module_arg);
 	  exit(EXIT_FAILURE);
 	}
+    // check whether the probe module is going to generate dynamic data
+    // and that the output module can support exporting that data out of
+    // zmap. If they can't, then quit.
+    if (zconf.probe_module->output_type == OUTPUT_TYPE_DYNAMIC
+            && !zconf.output_module->supports_dynamic_output) {
+        log_fatal("zmap", "specified probe module (%s) requires dynamic "
+                "output support, which output module (%s) does not support. "
+                "Most likely you want to use JSON output.",
+                args.probe_module_arg,
+                args.output_module_arg);
+    }
 	if (args.help_given) {
 		cmdline_parser_print_help();
 		printf("\nProbe-module (%s) Help:\n", zconf.probe_module->name);
@@ -457,7 +412,10 @@ int main(int argc, char *argv[])
 			printf("no help text available\n");
 		}
 		printf("\nOutput-module (%s) Help:\n", zconf.output_module->name);
-		if (zconf.output_module->helptext) {
+
+	   	if (!strcmp(args.output_module_arg, "default")) {
+			fprintw(stdout, (char*) default_help_text, 80);
+		} else if (zconf.output_module->helptext) {
 			fprintw(stdout, (char*) zconf.output_module->helptext, 80);
 		} else {
 			printf("no help text available\n");
@@ -506,22 +464,22 @@ int main(int argc, char *argv[])
 			fds_get_index_by_name(fds, (char*) "success");
 	if (zconf.fsconf.success_index < 0) {
 		log_fatal("fieldset", "probe module does not supply "
-				      "required success field.");
+					  "required success field.");
 	}
 	zconf.fsconf.app_success_index =
 			fds_get_index_by_name(fds, (char*) "app_success");
 	if (zconf.fsconf.app_success_index < 0) {
-		log_trace("fieldset", "probe module does not supply "
-				      "application success field.");
+		log_debug("fieldset", "probe module does not supply "
+					  "application success field.");
 	} else {
-		log_trace("fieldset", "probe module supplies app_success"
+		log_debug("fieldset", "probe module supplies app_success"
 				" output field. It will be included in monitor output");
 	}
 	zconf.fsconf.classification_index =
 			fds_get_index_by_name(fds, (char*) "classification");
 	if (zconf.fsconf.classification_index < 0) {
 		log_fatal("fieldset", "probe module does not supply "
-				      "required packet classification field.");
+					  "required packet classification field.");
 	}
 	// process the list of requested output fields.
 	if (args.output_fields_given) {
@@ -566,7 +524,6 @@ int main(int argc, char *argv[])
 
 	SET_BOOL(zconf.dryrun, dryrun);
 	SET_BOOL(zconf.quiet, quiet);
-	SET_BOOL(zconf.summary, summary);
 	SET_BOOL(zconf.ignore_invalid_hosts, ignore_invalid_hosts);
 	zconf.cooldown_secs = args.cooldown_time_arg;
 	SET_IF_GIVEN(zconf.output_filename, output_file);
@@ -580,11 +537,21 @@ int main(int argc, char *argv[])
 	SET_IF_GIVEN(zconf.packet_streams, probes);
 	SET_IF_GIVEN(zconf.status_updates_file, status_updates_file);
 	SET_IF_GIVEN(zconf.num_retries, retries);
+	SET_IF_GIVEN(zconf.max_sendto_failures, max_sendto_failures);
+	SET_IF_GIVEN(zconf.min_hitrate, min_hitrate);
 
 	if (zconf.num_retries < 0) {
 		log_fatal("zmap", "Invalid retry count");
 	}
 
+	if (zconf.max_sendto_failures >= 0) {
+		log_debug("zmap", "scan will abort if more than %i "
+				"sendto failures occur", zconf.max_sendto_failures);
+	}
+	if (zconf.min_hitrate > 0.0) {
+		log_debug("zmap", "scan will abort if hitrate falls below %f",
+				zconf.min_hitrate);
+	}
 	if (args.metadata_file_arg) {
 #ifdef JSON
 		zconf.metadata_filename = args.metadata_file_arg;
@@ -594,9 +561,10 @@ int main(int argc, char *argv[])
 			zconf.metadata_file = fopen(zconf.metadata_filename, "w");
 		}
 		if (!zconf.metadata_file) {
-			log_fatal("metadata", "unable to open metadata file");
+			log_fatal("metadata", "unable to open metadata file (%s): %s",
+					zconf.metadata_filename, strerror(errno));
 		}
-		log_trace("metadata", "metdata will be saved to %s",
+		log_debug("metadata", "metdata will be saved to %s",
 				zconf.metadata_filename);
 #else
 		log_fatal("zmap", "JSON support not compiled into ZMap. "
@@ -604,27 +572,27 @@ int main(int argc, char *argv[])
 #endif
 	}
 
-    if (args.user_metadata_given) {
+	if (args.user_metadata_given) {
 #ifdef JSON
-        zconf.custom_metadata_str = args.user_metadata_arg;
-        if (!json_tokener_parse(zconf.custom_metadata_str)) {
-            log_fatal("metadata", "unable to parse custom user metadata");
-        } else {
-            log_debug("metadata", "user metadata validated successfully");
-        }
+		zconf.custom_metadata_str = args.user_metadata_arg;
+		if (!json_tokener_parse(zconf.custom_metadata_str)) {
+			log_fatal("metadata", "unable to parse custom user metadata");
+		} else {
+			log_debug("metadata", "user metadata validated successfully");
+		}
 #else
-    	log_fatal("zmap", "JSON support not compiled into ZMap. "
+		log_fatal("zmap", "JSON support not compiled into ZMap. "
 				"Metadata output not supported.");
 #endif
-    }
-    if (args.notes_given) {
+	}
+	if (args.notes_given) {
 #ifdef JSON
-        zconf.notes = args.notes_arg;
+		zconf.notes = args.notes_arg;
 #else
-    	log_fatal("zmap", "JSON support not compiled into ZMap. "
+		log_fatal("zmap", "JSON support not compiled into ZMap. "
 				"Metadata output and note injection are not supported.");
 #endif
-    }
+	}
 
 
 	// find if zmap wants any specific cidrs scanned instead
@@ -688,30 +656,32 @@ int main(int argc, char *argv[])
 		}
 		zconf.gw_mac_set = 1;
 	}
-    if (args.source_mac_given) {
+	if (args.source_mac_given) {
 		if (!parse_mac(zconf.hw_mac, args.source_mac_arg)) {
 			fprintf(stderr, "%s: invalid MAC address `%s'\n",
 				CMDLINE_PARSER_PACKAGE, args.gateway_mac_arg);
 			exit(EXIT_FAILURE);
 		}
-        log_debug("send", "source MAC address specified on CLI: "
-                "%02x:%02x:%02x:%02x:%02x:%02x",
-                zconf.hw_mac[0], zconf.hw_mac[1], zconf.hw_mac[2],
-                zconf.hw_mac[3], zconf.hw_mac[4], zconf.hw_mac[5]);
+		log_debug("send", "source MAC address specified on CLI: "
+				"%02x:%02x:%02x:%02x:%02x:%02x",
+				zconf.hw_mac[0], zconf.hw_mac[1], zconf.hw_mac[2],
+				zconf.hw_mac[3], zconf.hw_mac[4], zconf.hw_mac[5]);
 
 		zconf.hw_mac_set = 1;
 	}
 	// Check for a random seed
 	if (args.seed_given) {
 		zconf.seed = args.seed_arg;
-		zconf.use_seed = 1;
-	}
-	// Seed the RNG
-	if (zconf.use_seed) {
-		zconf.aes = aesrand_init_from_seed(zconf.seed);
+		zconf.seed_provided = 1;
 	} else {
-		zconf.aes = aesrand_init_from_random();
+		// generate a seed randomly
+		if (!random_bytes(&zconf.seed, sizeof(uint64_t))) {
+			log_fatal("zmap", "unable to generate random bytes "
+ 					"needed for seed");
+		}
+		zconf.seed_provided = 0;
 	}
+	zconf.aes = aesrand_init_from_seed(zconf.seed);
 
 	// Set up sharding
 	zconf.shard_num = 0;
@@ -794,12 +764,14 @@ int main(int argc, char *argv[])
 	if (blacklist_init(zconf.whitelist_filename, zconf.blacklist_filename,
 			zconf.destination_cidrs, zconf.destination_cidrs_len,
 			NULL, 0,
-            zconf.ignore_invalid_hosts)) {
+			zconf.ignore_invalid_hosts)) {
 		log_fatal("zmap", "unable to initialize blacklist / whitelist");
 	}
 
 	// compute number of targets
 	uint64_t allowed = blacklist_count_allowed();
+	zconf.total_allowed = allowed;
+	zconf.total_disallowed = blacklist_count_not_allowed();
 	assert(allowed <= (1LL << 32));
 	if (allowed == (1LL << 32)) {
 		zsend.targets = 0xFFFFFFFF;
@@ -827,8 +799,9 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	if (zconf.senders >= zsend.targets) {
-		zconf.senders = max_int(zsend.targets - 1, 1);
+	if (2*zconf.senders >= zsend.targets) {
+		log_warn("zmap", "too few targets relative to senders, dropping to one sender");
+		zconf.senders = 1;
 	}
 #else
 	zconf.senders = args.sender_threads_arg;
@@ -915,6 +888,9 @@ int main(int argc, char *argv[])
 				strerror(errno));
 	}
 #endif
+
+	// resume scan if requested
+
 	start_zmap();
 
 	fclose(log_location);

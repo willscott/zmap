@@ -1,3 +1,11 @@
+/*
+ * ZMap Copyright 2013 Regents of the University of Michigan
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not
+ * use this file except in compliance with the License. You may obtain a copy
+ * of the License at http://www.apache.org/licenses/LICENSE-2.0
+ */
+
 #include "recv.h"
 #include "recv-internal.h"
 
@@ -52,7 +60,6 @@ void recv_packets()
 	handle_packet(pf_buffer->len, pf_buffer->data);
 }
 
-
 int recv_update_stats(void)
 {
 	if (!pf_recv) {
@@ -68,3 +75,4 @@ int recv_update_stats(void)
 	}
 	return EXIT_SUCCESS;
 }
+

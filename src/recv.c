@@ -5,6 +5,7 @@
  * use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0
  */
+
 #include "recv.h"
 
 #include <assert.h>
@@ -48,8 +49,12 @@ void handle_packet(uint32_t buflen, const u_char *bytes) {
 				&src_ip, validation)) {
 		return;
 	}
-
-	int is_repeat = 0; //= pbm_check(seen, ntohl(src_ip));
+    // woo! We've validated that the packet is a response to our scan
+	int is_repeat = pbm_check(seen, ntohl(src_ip));
+    // track whether this is the first packet in an IP fragment.
+    if (ip_hdr->ip_off & IP_MF) {
+        zrecv.ip_fragments++;   
+    }
 
 	fieldset_t *fs = fs_new_fieldset();
 	fs_add_ip_fields(fs, ip_hdr);
@@ -65,7 +70,7 @@ void handle_packet(uint32_t buflen, const u_char *bytes) {
 		memcpy(&fake_eth_hdr[sizeof(struct ether_header)], bytes, buflen);
 		bytes = fake_eth_hdr;
 	}
-	zconf.probe_module->process_packet(bytes, buflen, fs);
+	zconf.probe_module->process_packet(bytes, buflen, fs, validation);
 	fs_add_system_fields(fs, is_repeat, zsend.complete);
 	int success_index = zconf.fsconf.success_index;
 	assert(success_index < fs->len);
@@ -178,3 +183,4 @@ int recv_run(pthread_mutex_t *recv_ready_mutex)
 	log_debug("recv", "thread finished");
 	return 0;
 }
+

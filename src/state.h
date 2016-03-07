@@ -5,6 +5,7 @@
  * use this file except in compliance with the License. You may obtain a copy
  * of the License at http://www.apache.org/licenses/LICENSE-2.0
  */
+
 #ifndef STATE_H
 #define STATE_H
 
@@ -66,7 +67,7 @@ struct state_conf {
 	uint32_t *pin_cores;
 	// should use CLI provided randomization seed instead of generating
 	// a random seed.
-	int use_seed;
+	int seed_provided;
 	uint64_t seed;
 	aesrand_t *aes;
 	// generator of the cyclic multiplicative group that is utilized for
@@ -109,7 +110,6 @@ struct state_conf {
 	char *log_directory;
 	char *status_updates_file;
 	int dryrun;
-	int summary;
 	int quiet;
 	int ignore_invalid_hosts;
 	int syslog;
@@ -117,6 +117,10 @@ struct state_conf {
 	int filter_unsuccessful;
 	int recv_ready;
 	int num_retries;
+	uint64_t total_allowed;
+	uint64_t total_disallowed;
+	int max_sendto_failures;
+	float min_hitrate;
 #ifdef PFRING
 	struct {
 		pfring_zc_cluster *cluster;
@@ -138,6 +142,7 @@ struct state_send {
 	uint32_t sent;
 	uint32_t blacklisted;
 	uint32_t whitelisted;
+	int warmup;
 	int complete;
 	uint32_t first_scanned;
 	uint32_t targets;
@@ -162,6 +167,9 @@ struct state_recv {
 	uint32_t cooldown_unique;
 	// valid responses NOT classified as "success"
 	uint32_t failure_total;
+	// how many packets did we receive that were marked as being the first
+	// fragment in a stream
+	uint32_t ip_fragments;
 
 	int complete;  // has the scanner finished sending?
 	double start;  // timestamp of when recv started

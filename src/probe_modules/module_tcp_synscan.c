@@ -73,11 +73,11 @@ void synscan_print_packet(FILE *fp, void* packet)
 	struct ether_header *ethh = (struct ether_header *) packet;
 	struct ip *iph = (struct ip *) &ethh[1];
 	struct tcphdr *tcph = (struct tcphdr *) &iph[1];
-	fprintf(fp, "tcp { source: %u | dest: %u | seq: %u | checksum: %u }\n",
+	fprintf(fp, "tcp { source: %u | dest: %u | seq: %u | checksum: %#04X }\n",
 			ntohs(tcph->th_sport),
 			ntohs(tcph->th_dport),
 			ntohl(tcph->th_seq),
-			ntohl(tcph->th_sum));
+			ntohs(tcph->th_sum));
 	fprintf_ip_header(fp, iph);
 	fprintf_eth_header(fp, ethh);
 	fprintf(fp, "------------------------------------------------------\n");
@@ -113,7 +113,8 @@ int synscan_validate_packet(const struct ip *ip_hdr, uint32_t len,
 }
 
 void synscan_process_packet(const u_char *packet,
-		__attribute__((unused)) uint32_t len, fieldset_t *fs)
+		__attribute__((unused)) uint32_t len, fieldset_t *fs,
+        __attribute__((unused)) uint32_t *validation)
 {
 	struct ip *ip_hdr = (struct ip *)&packet[sizeof(struct ether_header)];
 	struct tcphdr *tcp = (struct tcphdr*)((char *)ip_hdr
@@ -161,7 +162,7 @@ probe_module_t module_tcp_synscan = {
 		"port. Possible classifications are: synack and rst. A "
 		"SYN-ACK packet is considered a success and a reset packet "
 		"is considered a failed response.",
-
+	.output_type = OUTPUT_TYPE_STATIC,
 	.fields = fields,
 	.numfields = 7};
 

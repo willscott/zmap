@@ -10,7 +10,9 @@
 
 #include "monitor.h"
 
+#include <errno.h>
 #include <stdlib.h>
+#include <string.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <math.h>
@@ -28,6 +30,9 @@
 
 #define UPDATE_INTERVAL 1 //seconds
 #define NUMBER_STR_LEN 20
+#define WARMUP_PERIOD 5
+#define MIN_HITRATE_TIME_WINDOW 5 //seconds
+
 
 // internal monitor status that is used to track deltas
 typedef struct internal_scan_status {
@@ -38,7 +43,7 @@ typedef struct internal_scan_status {
 	uint32_t last_recv_app_success;
 	uint32_t last_recv_total;
 	uint32_t last_pcap_drop;
-
+    double   min_hitrate_start;
 } int_status_t;
 
 // exportable status information that can be printed to screen
@@ -88,8 +93,11 @@ typedef struct export_scan_status {
 	uint32_t fail_total;
 	double fail_avg;
 	double fail_last;
+	float seconds_under_min_hitrate;
 
 } export_status_t;
+
+static FILE *f = NULL;
 
 // find minimum of an array of doubles
 static double min_d(double array[], int n)
@@ -136,6 +144,7 @@ static void update_pcap_stats(pthread_mutex_t *recv_ready_mutex)
 static void export_stats(int_status_t *intrnl, export_status_t *exp, iterator_t *it)
 {
 	uint32_t total_sent = iterator_get_sent(it);
+	uint32_t total_fail = iterator_get_fail(it);
 	uint32_t total_recv = zrecv.pcap_recv;
 	uint32_t recv_success = zrecv.success_unique;
 	uint32_t app_success = zrecv.app_success_unique;
@@ -145,7 +154,7 @@ static void export_stats(int_status_t *intrnl, export_status_t *exp, iterator_t 
 	double remaining_secs = compute_remaining_time(age, total_sent);
 
 	// export amount of time the scan has been running
-	if (age < 5) {
+	if (age < WARMUP_PERIOD) {
 		exp->time_remaining_str[0] = '\0';
 	} else {
 		char buf[20];
@@ -180,6 +189,18 @@ static void export_stats(int_status_t *intrnl, export_status_t *exp, iterator_t 
 		exp->app_hitrate = app_success*100.0/total_sent;
 	}
 
+	if (age > WARMUP_PERIOD && exp->hitrate < zconf.min_hitrate) {
+            if (fabs(intrnl->min_hitrate_start) < .00001) {
+                intrnl->min_hitrate_start = cur_time;
+            }
+	} else {
+		intrnl->min_hitrate_start = 0.0;
+	}
+	if (fabs(intrnl->min_hitrate_start) < .00001) {
+	    exp->seconds_under_min_hitrate = 0;
+	} else {
+		exp->seconds_under_min_hitrate = cur_time - intrnl->min_hitrate_start;
+	}
 	if (!zsend.complete) {
 		exp->send_rate = (total_sent - intrnl->last_sent)/delta;
 		number_string(exp->send_rate, exp->send_rate_str, NUMBER_STR_LEN);
@@ -207,6 +228,7 @@ static void export_stats(int_status_t *intrnl, export_status_t *exp, iterator_t 
 	number_string(exp->pcap_drop_last, exp->pcap_drop_last_str, NUMBER_STR_LEN);
 	number_string(exp->pcap_drop_avg, exp->pcap_drop_avg_str, NUMBER_STR_LEN);
 
+	zsend.sendto_failures = total_fail;
 	exp->fail_total = zsend.sendto_failures;
 	exp->fail_last = (exp->fail_total - intrnl->last_send_failures) / delta;
 	exp->fail_avg = exp->fail_total/age;
@@ -334,10 +356,10 @@ static FILE* init_status_update_file(char *path)
 {
 		FILE *f = fopen(path, "wb");
 		if (!f) {
-			log_fatal("csv", "could not open output file (%s)",
-					zconf.status_updates_file);
+			log_fatal("csv", "could not open status updates file (%s): %s",
+					zconf.status_updates_file, strerror(errno));
 		}
-		log_trace("monitor", "status updates CSV will be saved to %s",
+		log_debug("monitor", "status updates CSV will be saved to %s",
 				zconf.status_updates_file);
 		fprintf(f,
 				"real-time,time-elapsed,time-remaining,"
@@ -380,20 +402,41 @@ static void update_status_updates_file(export_status_t *exp, FILE *f)
 }
 
 
+static inline void check_min_hitrate(export_status_t *exp)
+{
+	if (exp->seconds_under_min_hitrate >= MIN_HITRATE_TIME_WINDOW) {
+		log_fatal("monitor", "hitrate below %.0f for %.0f seconds. aborting scan.",
+				zconf.min_hitrate, exp->seconds_under_min_hitrate);
+	}
+}
+
+static inline void check_max_sendto_failures(export_status_t *exp)
+{
+	if (zconf.max_sendto_failures >= 0 && exp->fail_total > (uint32_t) zconf.max_sendto_failures) {
+		log_fatal("monitor", "maxiumum number of sendto failures (%i) exceeded",
+				zconf.max_sendto_failures);
+	}
+}
+
+
+void monitor_init(void)
+{
+	if (zconf.status_updates_file) {
+		f = init_status_update_file(zconf.status_updates_file);
+	}
+}
+
 void monitor_run(iterator_t *it, pthread_mutex_t *lock)
 {
 	int_status_t *internal_status = xmalloc(sizeof(int_status_t));
 	export_status_t *export_status = xmalloc(sizeof(export_status_t));
 
-	FILE *f = NULL;
-	if (zconf.status_updates_file) {
-		f = init_status_update_file(zconf.status_updates_file);
-	}
-
 	while (!(zsend.complete && zrecv.complete)) {
 		update_pcap_stats(lock);
 		export_stats(internal_status, export_status, it);
 		log_drop_warnings(export_status);
+		check_min_hitrate(export_status);
+		check_max_sendto_failures(export_status);
 		if (!zconf.quiet) {
 			lock_file(stderr);
 			if (zconf.fsconf.app_success_index >= 0) {
