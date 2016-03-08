@@ -24,6 +24,7 @@ extern probe_module_t module_tcp_synscan;
 extern probe_module_t module_icmp_echo;
 extern probe_module_t module_icmp_echo_time;
 extern probe_module_t module_udp;
+extern probe_module_t module_udp_src;
 extern probe_module_t module_ntp;
 extern probe_module_t module_upnp;
 extern probe_module_t module_tcp_ackscan;
@@ -36,6 +37,7 @@ probe_module_t* probe_modules[] = {
 	&module_icmp_echo,
 	&module_icmp_echo_time,
 	&module_udp,
+	&module_udp_src,
 	&module_udp_dns,
     &module_ntp,
     &module_upnp,
@@ -117,4 +119,3 @@ fielddef_t sys_fields[] = {
 	{.name="timestamp_ts", .type="int", .desc="timestamp of when response arrived in seconds since Epoch"},
 	{.name="timestamp_us", .type="int", .desc="microsecond part of timestamp (e.g. microseconds since 'timestamp-ts')"}
 };
-

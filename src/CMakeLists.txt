@@ -9,6 +9,7 @@ include_directories(
 # ADD YOUR PROBE MODULE HERE
 set(EXTRA_PROBE_MODULES
     probe_modules/module_tcp_ackscan.c
+    probe_modules/module_udp_src.c
 )
 
 # ADD YOUR OUTPUT MODULE HERE
