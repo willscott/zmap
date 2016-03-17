@@ -36,7 +36,7 @@ static udp_src_payload_template_t *udp_template = NULL;
 
 static const char *udp_send_msg_default = "GET / HTTP/1.1\r\nHost: www\r\n\r\n";
 
-const char *udp_unreach_strings[] = {
+const char *udp_src_unreach_strings[] = {
 	"network unreachable",
 	"host unreachable",
 	"protocol unreachable",
@@ -55,13 +55,13 @@ const char *udp_unreach_strings[] = {
 	"precedence cutoff"
 };
 
-const char *udp_usage_error =
+const char *udp_src_usage_error =
 	"unknown UDP probe specification (expected file:/path or text:STRING or hex:01020304 or template:/path or template-fields)";
 
-const unsigned char *charset_alphanum = (unsigned char *)"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-const unsigned char *charset_alpha    = (unsigned char *)"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-const unsigned char *charset_digit    = (unsigned char *)"0123456789";
-const unsigned char charset_all[257]  = {
+const unsigned char *us_charset_alphanum = (unsigned char *)"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+const unsigned char *us_charset_alpha    = (unsigned char *)"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const unsigned char *us_charset_digit    = (unsigned char *)"0123456789";
+const unsigned char us_charset_all[257]  = {
 	0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
 	0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e,
 	0x1f, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d,
@@ -146,7 +146,7 @@ int udp_src_global_initialize(struct state_conf *conf) {
 	if (! c) {
 		free(args);
 		free(udp_send_msg);
-		log_fatal("udp_src", udp_usage_error);
+		log_fatal("udp_src", udp_src_usage_error);
 		exit(1);
 	}
 
@@ -190,7 +190,7 @@ int udp_src_global_initialize(struct state_conf *conf) {
 			udp_send_msg[i] = (n & 0xff);
 		}
 	} else {
-		log_fatal("udp_src", udp_usage_error);
+		log_fatal("udp_src", udp_src_usage_error);
 		free(udp_send_msg);
 		free(args);
 		exit(1);
@@ -360,7 +360,7 @@ void udp_src_process_packet(const u_char *packet, UNUSED uint32_t len, fieldset_
 		fs_add_uint64(fs, "icmp_code", icmp->icmp_code);
 		if (icmp->icmp_code <= ICMP_UNREACH_PRECEDENCE_CUTOFF) {
 			fs_add_string(fs, "icmp_unreach_str",
-					(char*) udp_unreach_strings[icmp->icmp_code], 0);
+					(char*) udp_src_unreach_strings[icmp->icmp_code], 0);
 		} else {
 			fs_add_string(fs, "icmp_unreach_str", (char *) "unknown", 0);
 		}
@@ -525,19 +525,19 @@ int udp_src_template_build(udp_src_payload_template_t *t, char *out, unsigned in
 				break;
 
 			case UDP_RAND_DIGIT:
-				p += udp_src_random_bytes(p, c->length, charset_digit, 10, aes);
+				p += udp_src_random_bytes(p, c->length, us_charset_digit, 10, aes);
 				break;
 
 			case UDP_RAND_ALPHA:
-				p += udp_src_random_bytes(p, c->length, charset_alpha, 52, aes);
+				p += udp_src_random_bytes(p, c->length, us_charset_alpha, 52, aes);
 				break;
 
 			case UDP_RAND_ALPHANUM:
-				p += udp_src_random_bytes(p, c->length, charset_alphanum, 62, aes);
+				p += udp_src_random_bytes(p, c->length, us_charset_alphanum, 62, aes);
 				break;
 
 			case UDP_RAND_BYTE:
-				p += udp_src_random_bytes(p, c->length, charset_all, 256, aes);
+				p += udp_src_random_bytes(p, c->length, us_charset_all, 256, aes);
 				break;
 
 			// These fields need to calculate size on their own
