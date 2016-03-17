@@ -38,10 +38,10 @@ probe_module_t* probe_modules[] = {
 	&module_icmp_echo_time,
 	&module_udp,
 	&module_udp_src,
-	&module_udp_dns,
+//	&module_udp_dns,
     &module_ntp,
     &module_upnp,
-    &module_tcp_ackscan
+    &module_tcp_ackscan,
 	&module_dns,
 	&module_tcp_cisco_backdoor,
 	&module_bacnet

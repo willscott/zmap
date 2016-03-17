@@ -240,9 +240,9 @@ int udp_src_init_perthread(void* buf, macaddr_t *src,
 
 	char* payload = (char*)(&udp_header[1]);
 
-	module_udp.packet_length = sizeof(struct ether_header) + sizeof(struct ip)
+	module_udp_src.packet_length = sizeof(struct ether_header) + sizeof(struct ip)
 				+ sizeof(struct udphdr) + udp_send_msg_len;
-	assert(module_udp.packet_length <= MAX_PACKET_SIZE);
+	assert(module_udp_src.packet_length <= MAX_PACKET_SIZE);
 	memcpy(payload, udp_send_msg, udp_send_msg_len);
 
 	// Seed our random number generator with the global generator
