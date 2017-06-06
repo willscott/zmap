@@ -23,20 +23,20 @@
 #include "packet.h"
 #include "aesrand.h"
 #include "state.h"
-#include "module_udp.h"
+#include "module_udp_multi.h"
 
-#define MAX_UDP_PAYLOAD_LEN 1472
-#define ICMP_UNREACH_HEADER_SIZE 8
+#define MAX_UDP_MULTI_PAYLOAD_LEN 1472
 #define UNUSED __attribute__((unused))
 
-static char *udp_send_msg = NULL;
-static int udp_send_msg_len = 0;
-static int udp_send_substitutions = 0;
-static udp_payload_template_t *udp_template = NULL;
+static char *udp_multi_send_msg = NULL;
+static int udp_multi_send_msg_len = 0;
+static int *udp_multi_send_msg_len_arr = NULL;
+static int udp_multi_send_substitutions = 0;
+static udp_multi_payload_template_t *udp_multi_template = NULL;
 
-static const char *udp_send_msg_default = "GET / HTTP/1.1\r\nHost: www\r\n\r\n";
+static const char *udp_multi_send_msg_default = "GET / HTTP/1.1\r\nHost: www\r\n\r\n";
 
-const char *udp_unreach_strings[] = {
+const char *udp_multi_unreach_strings[] = {
 	"network unreachable",
 	"host unreachable",
 	"protocol unreachable",
@@ -55,13 +55,13 @@ const char *udp_unreach_strings[] = {
 	"precedence cutoff"
 };
 
-const char *udp_usage_error =
+const char *udp_multi_usage_error =
 	"unknown UDP probe specification (expected file:/path or text:STRING or hex:01020304 or template:/path or template-fields)";
 
-const unsigned char *charset_alphanum = (unsigned char *)"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-const unsigned char *charset_alpha    = (unsigned char *)"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-const unsigned char *charset_digit    = (unsigned char *)"0123456789";
-const unsigned char charset_all[257]  = {
+const unsigned char *charset_alphanum_m = (unsigned char *)"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+const unsigned char *charset_alpha_m    = (unsigned char *)"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const unsigned char *charset_digit_m    = (unsigned char *)"0123456789";
+const unsigned char charset_all_m[257]  = {
 	0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
 	0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e,
 	0x1f, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d,
@@ -86,11 +86,11 @@ const unsigned char charset_all[257]  = {
 
 static int num_ports;
 
-probe_module_t module_udp;
+probe_module_t module_udp_multi;
 
 // Field definitions for template parsing and displaying usage
-static uint32_t udp_num_template_field_types = 12;
-static udp_payload_field_type_def_t udp_payload_template_fields[] = {
+static uint32_t udp_multi_num_template_field_types = 12;
+static udp_multi_payload_field_type_def_t udp_multi_payload_template_fields[] = {
 	{.name = "SADDR_N", .ftype=UDP_SADDR_N, .desc = "Source IP address in network byte order"},
 	{.name = "SADDR",   .ftype=UDP_SADDR_A, .desc = "Source IP address in dotted-quad format"},
 	{.name = "DADDR_N", .ftype=UDP_DADDR_N, .desc = "Destination IP address in network byte order"},
@@ -105,13 +105,14 @@ static udp_payload_field_type_def_t udp_payload_template_fields[] = {
 	{.name = "RAND_ALPHANUM", .ftype=UDP_RAND_ALPHANUM, .desc = "Random mixed-case letters (a-z) and numbers"}
 };
 
-void udp_set_num_ports(int x)
+void udp_multi_set_num_ports(int x)
 {
+    //fprintf(stderr, "num ports is %d\n", x);
 	num_ports = x;
 }
 
-int udp_global_initialize(struct state_conf *conf) {
-	char *args, *c;
+int udp_multi_global_initialize(struct state_conf *conf) {
+	char *args, *c, *pc, *pca;
 	int i;
 	unsigned int n;
 
@@ -119,8 +120,8 @@ int udp_global_initialize(struct state_conf *conf) {
 
 	num_ports = conf->source_port_last - conf->source_port_first + 1;
 
-	udp_send_msg = strdup(udp_send_msg_default);
-	udp_send_msg_len = strlen(udp_send_msg);
+	udp_multi_send_msg = strdup(udp_multi_send_msg_default);
+	udp_multi_send_msg_len = strlen(udp_multi_send_msg);
 
 	if (!(conf->probe_args && strlen(conf->probe_args) > 0))
 		return(0);
@@ -132,10 +133,10 @@ int udp_global_initialize(struct state_conf *conf) {
 		lock_file(stderr);
 		fprintf(stderr, "%s",
 			"List of allowed UDP template fields (name: description)\n\n");
-		for (uint32_t i = 0; i < udp_num_template_field_types; ++i) {
+		for (uint32_t i = 0; i < udp_multi_num_template_field_types; ++i) {
 			fprintf(stderr, "%s: %s\n",
-				udp_payload_template_fields[i].name,
-				udp_payload_template_fields[i].desc);
+				udp_multi_payload_template_fields[i].name,
+				udp_multi_payload_template_fields[i].desc);
 		}
 		fprintf(stderr, "%s\n" ,"");
 		unlock_file(stderr);
@@ -145,85 +146,131 @@ int udp_global_initialize(struct state_conf *conf) {
 	c = strchr(args, ':');
 	if (! c) {
 		free(args);
-		free(udp_send_msg);
-		log_fatal("udp", udp_usage_error);
+		free(udp_multi_send_msg);
+		log_fatal("udp_multi", udp_multi_usage_error);
 		exit(1);
 	}
 
 	*c++ = 0;
 
 	if (strcmp(args, "text") == 0) {
-		free(udp_send_msg);
-		udp_send_msg = strdup(c);
-		udp_send_msg_len = strlen(udp_send_msg);
+		free(udp_multi_send_msg);
+		udp_multi_send_msg = strdup(c);
+		udp_multi_send_msg_len = strlen(udp_multi_send_msg);
 
 	} else if (strcmp(args, "file") == 0 || strcmp(args, "template") == 0) {
-		inp = fopen(c, "rb");
+        i = 0;
+        pc = strchr(c, ',');
+        while (pc != NULL) {
+          i++;
+          pc = strchr(pc + 1, ',');
+        }
+        // Multi-file.
+        if (i > 0) {
+          free(udp_multi_send_msg);
+          udp_multi_send_msg_len = i + 1;
+          fprintf(stderr, "Round robin of %d packets.\n\n", udp_multi_send_msg_len);
+		  udp_multi_send_msg = xmalloc(udp_multi_send_msg_len * MAX_UDP_MULTI_PAYLOAD_LEN);
+          udp_multi_send_msg_len_arr = xmalloc(udp_multi_send_msg_len * sizeof(int));
+          i = 0;
+          pca = c;
+          pc = strchr(c, ',');
+          while (i < udp_multi_send_msg_len) {
+            if (pc != NULL) {
+              pc[0] = '\0';
+            }
+            inp = fopen(pca, "rb");
+		    if (!inp) {
+			  free(args);
+              free(udp_multi_send_msg);
+			  log_fatal("udp_multi", "could not open UDP data file '%s'\n", c);
+		      exit(1);
+		    }
+		    udp_multi_send_msg_len_arr[i] = fread(udp_multi_send_msg+(i*MAX_UDP_MULTI_PAYLOAD_LEN), 1, MAX_UDP_MULTI_PAYLOAD_LEN, inp);
+ 	           fprintf(stderr, "Read %s of len %u\n", pca, udp_multi_send_msg_len_arr[i]);
+		    fclose(inp);
+
+            i++;
+            if (i == udp_multi_send_msg_len) {
+              break;
+            }
+            pca = pc + 1;
+            pc = strchr(pca, ',');
+          }
+          free(args);
+	      return EXIT_SUCCESS;
+        }
+
+        inp = fopen(c, "rb");
 		if (!inp) {
 			free(args);
-			free(udp_send_msg);
-			log_fatal("udp", "could not open UDP data file '%s'\n", c);
+			free(udp_multi_send_msg);
+			log_fatal("udp_multi", "could not open UDP data file '%s'\n", c);
 			exit(1);
 		}
-		free(udp_send_msg);
-		udp_send_msg = xmalloc(MAX_UDP_PAYLOAD_LEN);
-		udp_send_msg_len = fread(udp_send_msg, 1, MAX_UDP_PAYLOAD_LEN, inp);
+		free(udp_multi_send_msg);
+		udp_multi_send_msg = xmalloc(MAX_UDP_MULTI_PAYLOAD_LEN);
+		udp_multi_send_msg_len = fread(udp_multi_send_msg, 1, MAX_UDP_MULTI_PAYLOAD_LEN, inp);
 		fclose(inp);
 
 		if (strcmp(args, "template") == 0) {
-			udp_send_substitutions = 1;
-			udp_template = udp_template_load(udp_send_msg, udp_send_msg_len);
+			udp_multi_send_substitutions = 1;
+			udp_multi_template = udp_multi_template_load(udp_multi_send_msg, udp_multi_send_msg_len);
 		}
 
 	} else if (strcmp(args, "hex") == 0) {
-		udp_send_msg_len = strlen(c) / 2;
-		free(udp_send_msg);
-		udp_send_msg = xmalloc(udp_send_msg_len);
+		udp_multi_send_msg_len = strlen(c) / 2;
+		free(udp_multi_send_msg);
+		udp_multi_send_msg = xmalloc(udp_multi_send_msg_len);
 
-		for (i=0; i < udp_send_msg_len; i++) {
+		for (i=0; i < udp_multi_send_msg_len; i++) {
 			if (sscanf(c + (i*2), "%2x", &n) != 1) {
 				free(args);
-				free(udp_send_msg);
-				log_fatal("udp", "non-hex character: '%c'", c[i*2]);
+				free(udp_multi_send_msg);
+				log_fatal("udp_multi", "non-hex character: '%c'", c[i*2]);
 				exit(1);
 			}
-			udp_send_msg[i] = (n & 0xff);
+			udp_multi_send_msg[i] = (n & 0xff);
 		}
 	} else {
-		log_fatal("udp", udp_usage_error);
-		free(udp_send_msg);
+		log_fatal("udp_multi", udp_multi_usage_error);
+		free(udp_multi_send_msg);
 		free(args);
 		exit(1);
 	}
 
-	if (udp_send_msg_len > MAX_UDP_PAYLOAD_LEN) {
-		log_warn("udp", "warning: reducing UDP payload to %d "
+	if (udp_multi_send_msg_len > MAX_UDP_MULTI_PAYLOAD_LEN) {
+		log_warn("udp_multi", "warning: reducing UDP payload to %d "
 				"bytes (from %d) to fit on the wire\n",
-				MAX_UDP_PAYLOAD_LEN, udp_send_msg_len);
-		udp_send_msg_len = MAX_UDP_PAYLOAD_LEN;
+				MAX_UDP_MULTI_PAYLOAD_LEN, udp_multi_send_msg_len);
+		udp_multi_send_msg_len = MAX_UDP_MULTI_PAYLOAD_LEN;
 	}
 	free(args);
 	return EXIT_SUCCESS;
 }
 
-int udp_global_cleanup(__attribute__((unused)) struct state_conf *zconf,
+int udp_multi_global_cleanup(__attribute__((unused)) struct state_conf *zconf,
 		__attribute__((unused)) struct state_send *zsend,
 		__attribute__((unused)) struct state_recv *zrecv)
 {
-	if (udp_send_msg) {
-		free(udp_send_msg);
-		udp_send_msg = NULL;
+	if (udp_multi_send_msg) {
+		free(udp_multi_send_msg);
+		udp_multi_send_msg = NULL;
 	}
+    if (udp_multi_send_msg_len_arr) {
+		free(udp_multi_send_msg_len_arr);
+		udp_multi_send_msg_len_arr = NULL;
+    }
 
-	if (udp_template) {
-		udp_template_free(udp_template);
-		udp_template = NULL;
+	if (udp_multi_template) {
+		udp_multi_template_free(udp_multi_template);
+		udp_multi_template = NULL;
 	}
 
 	return EXIT_SUCCESS;
 }
 
-int udp_init_perthread(void* buf, macaddr_t *src,
+int udp_multi_init_perthread(void* buf, macaddr_t *src,
 		macaddr_t *gw, __attribute__((unused)) port_h_t dst_port,\
 		void **arg_ptr)
 {
@@ -231,19 +278,19 @@ int udp_init_perthread(void* buf, macaddr_t *src,
 	struct ether_header *eth_header = (struct ether_header *) buf;
 	make_eth_header(eth_header, src, gw);
 	struct ip *ip_header = (struct ip*)(&eth_header[1]);
-	uint16_t len = htons(sizeof(struct ip) + sizeof(struct udphdr) + udp_send_msg_len);
+	uint16_t len = htons(sizeof(struct ip) + sizeof(struct udphdr) + udp_multi_send_msg_len);
 	make_ip_header(ip_header, IPPROTO_UDP, len);
 
 	struct udphdr *udp_header = (struct udphdr*)(&ip_header[1]);
-	len = sizeof(struct udphdr) + udp_send_msg_len;
+	len = sizeof(struct udphdr) + udp_multi_send_msg_len;
 	make_udp_header(udp_header, zconf.target_port, len);
 
 	char* payload = (char*)(&udp_header[1]);
 
-	module_udp.packet_length = sizeof(struct ether_header) + sizeof(struct ip)
-				+ sizeof(struct udphdr) + udp_send_msg_len;
-	assert(module_udp.packet_length <= MAX_PACKET_SIZE);
-	memcpy(payload, udp_send_msg, udp_send_msg_len);
+	module_udp_multi.packet_length = sizeof(struct ether_header) + sizeof(struct ip)
+				+ sizeof(struct udphdr) + udp_multi_send_msg_len;
+	assert(module_udp_multi.packet_length <= MAX_PACKET_SIZE);
+	memcpy(payload, udp_multi_send_msg, udp_multi_send_msg_len);
 
 	// Seed our random number generator with the global generator
 	uint32_t seed = aesrand_getword(zconf.aes);
@@ -253,7 +300,7 @@ int udp_init_perthread(void* buf, macaddr_t *src,
 	return EXIT_SUCCESS;
 }
 
-int udp_make_packet(void *buf, ipaddr_n_t src_ip, ipaddr_n_t dst_ip,
+int udp_multi_make_packet(void *buf, ipaddr_n_t src_ip, ipaddr_n_t dst_ip,
 		uint32_t *validation, int probe_num, void *arg)
 {
 	struct ether_header *eth_header = (struct ether_header *) buf;
@@ -266,29 +313,39 @@ int udp_make_packet(void *buf, ipaddr_n_t src_ip, ipaddr_n_t dst_ip,
 	udp_header->uh_sport = htons(get_src_port(num_ports, probe_num,
 	                             validation));
 
-	if (udp_send_substitutions) {
+	if (udp_multi_send_substitutions) {
 		char *payload = (char *) &udp_header[1];
 		int payload_len = 0;
 
-		memset(payload, 0, MAX_UDP_PAYLOAD_LEN);
+		memset(payload, 0, MAX_UDP_MULTI_PAYLOAD_LEN);
 
 		// Grab our random number generator
 		aesrand_t *aes = (aesrand_t *) arg;
 
 		// The buf is a stack var of our caller of size MAX_PACKET_SIZE
 		// Recalculate the payload using the loaded template
-		payload_len = udp_template_build(udp_template, payload, MAX_UDP_PAYLOAD_LEN, ip_header, udp_header, aes);
+		payload_len = udp_multi_template_build(udp_multi_template, payload, MAX_UDP_MULTI_PAYLOAD_LEN, ip_header, udp_header, aes);
 
 		// If success is zero, the template output was truncated
 		if (payload_len <= 0) {
-			log_fatal("udp", "UDP payload template generated an empty payload");
+			log_fatal("udp_multi", "UDP payload template generated an empty payload");
 			exit(1);
 		}
 
 		// Update the IP and UDP headers to match the new payload length
 		ip_header->ip_len   = htons(sizeof(struct ip) + sizeof(struct udphdr) + payload_len);
 		udp_header->uh_ulen = ntohs(sizeof(struct udphdr) + payload_len);
-	}
+	} else if (udp_multi_send_msg_len_arr) {
+      // Substitute appropriate pkt.
+      uint32_t payload_idx = udp_multi_idx(dst_ip);
+      memcpy((char*)(&udp_header[1]), &udp_multi_send_msg[payload_idx * MAX_UDP_MULTI_PAYLOAD_LEN], udp_multi_send_msg_len_arr[payload_idx]);
+    
+      ip_header->ip_len   = htons(sizeof(struct ip) + sizeof(struct udphdr) + udp_multi_send_msg_len_arr[payload_idx]);
+      udp_header->uh_ulen = ntohs(sizeof(struct udphdr) + udp_multi_send_msg_len_arr[payload_idx]);
+      module_udp_multi.packet_length = sizeof(struct ether_header) + sizeof(struct ip)
+				+ sizeof(struct udphdr) + udp_multi_send_msg_len_arr[payload_idx];
+      //fprintf(stderr, "Prepared pkt %u as %u bytes\n", payload_idx, udp_multi_send_msg_len_arr[payload_idx]);
+    }
 
 	ip_header->ip_sum = 0;
 	ip_header->ip_sum = zmap_ip_checksum((unsigned short *) ip_header);
@@ -296,27 +353,27 @@ int udp_make_packet(void *buf, ipaddr_n_t src_ip, ipaddr_n_t dst_ip,
 	return EXIT_SUCCESS;
 }
 
-void udp_print_packet(FILE *fp, void* packet)
+void udp_multi_print_packet(FILE *fp, void* packet)
 {
 	struct ether_header *ethh = (struct ether_header *) packet;
 	struct ip *iph = (struct ip *) &ethh[1];
     struct udphdr *udph = (struct udphdr*)(&iph[1]); 
-	fprintf(fp, "udp { source: %u | dest: %u | checksum: %#04X }\n",
+	fprintf(fp, "udp_multi { source: %u | dest: %u | checksum: %u }\n",
 		ntohs(udph->uh_sport),
 		ntohs(udph->uh_dport),
-		ntohs(udph->uh_sum));
+		ntohl(udph->uh_sum));
 	fprintf_ip_header(fp, iph);
 	fprintf_eth_header(fp, ethh);
 	fprintf(fp, "------------------------------------------------------\n");
 }
 
-void udp_process_packet(const u_char *packet, UNUSED uint32_t len, fieldset_t *fs,
-       __attribute__((unused)) uint32_t *validation)
+void udp_multi_process_packet(const u_char *packet, UNUSED uint32_t len, fieldset_t *fs)
 {
 	struct ip *ip_hdr = (struct ip *) &packet[sizeof(struct ether_header)];
 	if (ip_hdr->ip_p == IPPROTO_UDP) {
 		struct udphdr *udp = (struct udphdr *) ((char *) ip_hdr + ip_hdr->ip_hl * 4);
-		fs_add_constchar(fs, "classification", "udp");
+		fs_add_string(fs, "classification", (char*) "udp", 0);
+		fs_add_uint64(fs, "probe", udp_multi_idx(ip_hdr->ip_src.s_addr));
 		fs_add_uint64(fs, "success", 1);
 		fs_add_uint64(fs, "sport", ntohs(udp->uh_sport));
 		fs_add_uint64(fs, "dport", ntohs(udp->uh_dport));
@@ -347,11 +404,12 @@ void udp_process_packet(const u_char *packet, UNUSED uint32_t len, fieldset_t *f
 		}
 	} else if (ip_hdr->ip_p == IPPROTO_ICMP) {
 		struct icmp *icmp = (struct icmp *) ((char *) ip_hdr + ip_hdr->ip_hl * 4);
-		struct ip *ip_inner = (struct ip *) ((char *) icmp + ICMP_UNREACH_HEADER_SIZE);
+		struct ip *ip_inner = (struct ip *) &icmp[1];
 		// ICMP unreach comes from another server (not the one we sent a probe to);
 		// But we will fix up saddr to be who we sent the probe to, in case you care.
 		fs_modify_string(fs, "saddr", make_ip_str(ip_inner->ip_dst.s_addr), 1);
 		fs_add_string(fs, "classification", (char*) "icmp-unreach", 0);
+		fs_add_uint64(fs, "probe", udp_multi_idx(ip_hdr->ip_src.s_addr));
 		fs_add_uint64(fs, "success", 0);
 		fs_add_null(fs, "sport");
 		fs_add_null(fs, "dport");
@@ -368,6 +426,7 @@ void udp_process_packet(const u_char *packet, UNUSED uint32_t len, fieldset_t *f
 		fs_add_null(fs, "data");
 	} else {
 		fs_add_string(fs, "classification", (char *) "other", 0);
+		fs_add_uint64(fs, "probe", 0);
 		fs_add_uint64(fs, "success", 0);
 		fs_add_null(fs, "sport");
 		fs_add_null(fs, "dport");
@@ -380,17 +439,8 @@ void udp_process_packet(const u_char *packet, UNUSED uint32_t len, fieldset_t *f
 	}
 }
 
-int udp_validate_packet(const struct ip *ip_hdr, uint32_t len,
-		uint32_t *src_ip, uint32_t *validation)
-
-{
-	return udp_do_validate_packet(ip_hdr, len, src_ip, validation, num_ports);
-}
-
-
-int udp_do_validate_packet(const struct ip *ip_hdr, uint32_t len,
-		__attribute__((unused))uint32_t *src_ip, uint32_t *validation,
-		int num_ports)
+int udp_multi_validate_packet(const struct ip *ip_hdr, uint32_t len,
+		__attribute__((unused))uint32_t *src_ip, uint32_t *validation)
 {
 	uint16_t dport, sport;
 	if (ip_hdr->ip_p == IPPROTO_UDP) {
@@ -405,7 +455,7 @@ int udp_do_validate_packet(const struct ip *ip_hdr, uint32_t len,
 	} else if (ip_hdr->ip_p == IPPROTO_ICMP) {
 		// UDP can return ICMP Destination unreach
 		// IP( ICMP( IP( UDP ) ) ) for a destination unreach
-		uint32_t min_len = 4*ip_hdr->ip_hl + ICMP_UNREACH_HEADER_SIZE
+		uint32_t min_len = 4*ip_hdr->ip_hl + sizeof(struct icmp)
 				+ sizeof(struct ip) + sizeof(struct udphdr);
 		if (len < min_len) {
 			// Not enough information for us to validate
@@ -417,7 +467,7 @@ int udp_do_validate_packet(const struct ip *ip_hdr, uint32_t len,
 			return 0;
 		}
 
-		struct ip *ip_inner = (struct ip*) ((char *) icmp + ICMP_UNREACH_HEADER_SIZE);
+		struct ip *ip_inner = (struct ip*) &icmp[1];
 		// Now we know the actual inner ip length, we should recheck the buffer
 		if (len < 4*ip_inner->ip_hl - sizeof(struct ip) + min_len) {
 			return 0;
@@ -440,18 +490,18 @@ int udp_do_validate_packet(const struct ip *ip_hdr, uint32_t len,
 }
 
 // Add a new field to the template
-void udp_template_add_field(udp_payload_template_t *t,
-	udp_payload_field_type_t ftype, unsigned int length, char *data)
+void udp_multi_template_add_field(udp_multi_payload_template_t *t,
+	udp_multi_payload_field_type_t ftype, unsigned int length, char *data)
 {
-	udp_payload_field_t *c;
+	udp_multi_payload_field_t *c;
 
 	t->fcount++;
-	t->fields = xrealloc(t->fields, sizeof(udp_payload_field_t) * t->fcount);
+	t->fields = xrealloc(t->fields, sizeof(udp_multi_payload_field_t) * t->fcount);
 	if (! t->fields) {
 		exit(1);
 	}
 
-	t->fields[t->fcount - 1] = xmalloc(sizeof(udp_payload_field_t));
+	t->fields[t->fcount - 1] = xmalloc(sizeof(udp_multi_payload_field_t));
 	c = t->fields[t->fcount - 1];
 
 	if (! c) {
@@ -464,7 +514,7 @@ void udp_template_add_field(udp_payload_template_t *t,
 }
 
 // Free all buffers held by the payload template, including its own
-void udp_template_free(udp_payload_template_t *t)
+void udp_multi_template_free(udp_multi_payload_template_t *t)
 {
 	unsigned int x;
 	for (x=0; x < t->fcount; x++) {
@@ -481,7 +531,7 @@ void udp_template_free(udp_payload_template_t *t)
 	free(t);
 }
 
-int udp_random_bytes(char *dst, int len, const unsigned char *charset,
+int udp_multi_random_bytes(char *dst, int len, const unsigned char *charset,
 		int charset_len, aesrand_t *aes) {
 	int i;
 	for(i=0; i<len; i++)
@@ -489,10 +539,16 @@ int udp_random_bytes(char *dst, int len, const unsigned char *charset,
 	return i;
 }
 
-int udp_template_build(udp_payload_template_t *t, char *out, unsigned int len,
+uint64_t udp_multi_idx(uint32_t addr) {
+  //fprintf(stderr, "addr %u across %u is %u\n", addr, udp_multi_send_msg_len, addr % udp_multi_send_msg_len);
+  return addr % udp_multi_send_msg_len;
+}
+
+
+int udp_multi_template_build(udp_multi_payload_template_t *t, char *out, unsigned int len,
 	struct ip *ip_hdr, struct udphdr *udp_hdr, aesrand_t *aes)
 {
-	udp_payload_field_t *c;
+	udp_multi_payload_field_t *c;
 	char *p;
 	char *max;
 	char tmp[256];
@@ -525,19 +581,19 @@ int udp_template_build(udp_payload_template_t *t, char *out, unsigned int len,
 				break;
 
 			case UDP_RAND_DIGIT:
-				p += udp_random_bytes(p, c->length, charset_digit, 10, aes);
+				p += udp_multi_random_bytes(p, c->length, charset_digit_m, 10, aes);
 				break;
 
 			case UDP_RAND_ALPHA:
-				p += udp_random_bytes(p, c->length, charset_alpha, 52, aes);
+				p += udp_multi_random_bytes(p, c->length, charset_alpha_m, 52, aes);
 				break;
 
 			case UDP_RAND_ALPHANUM:
-				p += udp_random_bytes(p, c->length, charset_alphanum, 62, aes);
+				p += udp_multi_random_bytes(p, c->length, charset_alphanum_m, 62, aes);
 				break;
 
 			case UDP_RAND_BYTE:
-				p += udp_random_bytes(p, c->length, charset_all, 256, aes);
+				p += udp_multi_random_bytes(p, c->length, charset_all_m, 256, aes);
 				break;
 
 			// These fields need to calculate size on their own
@@ -637,12 +693,12 @@ int udp_template_build(udp_payload_template_t *t, char *out, unsigned int len,
 }
 
 // Convert a string field name to a field type, parsing any specified length value
-int udp_template_field_lookup(char *vname, udp_payload_field_t *c)
+int udp_multi_template_field_lookup(char *vname, udp_multi_payload_field_t *c)
 {
 	char *param;
 	unsigned int f;
 	unsigned int olen = 0;
-	unsigned int fcount = sizeof(udp_payload_template_fields)/sizeof(udp_payload_template_fields[0]);
+	unsigned int fcount = sizeof(udp_multi_payload_template_fields)/sizeof(udp_multi_payload_template_fields[0]);
 
 	param = strstr((const char*)vname, "=");
 	if (param) {
@@ -659,8 +715,8 @@ int udp_template_field_lookup(char *vname, udp_payload_field_t *c)
 	// Find a field that matches the
 	for (f=0; f<fcount; f++) {
 
-		if (strcmp((char *)vname, udp_payload_template_fields[f].name) == 0) {
-			c->ftype	= udp_payload_template_fields[f].ftype;
+		if (strcmp((char *)vname, udp_multi_payload_template_fields[f].name) == 0) {
+			c->ftype	= udp_multi_payload_template_fields[f].ftype;
 			c->length = olen;
 			c->data	 = NULL;
 			return 1;
@@ -672,9 +728,9 @@ int udp_template_field_lookup(char *vname, udp_payload_field_t *c)
 }
 
 // Allocate a payload template and populate it by parsing a template file as a binary buffer
-udp_payload_template_t * udp_template_load(char *buf, unsigned int len)
+udp_multi_payload_template_t * udp_multi_template_load(char *buf, unsigned int len)
 {
-	udp_payload_template_t *t = xmalloc(sizeof(udp_payload_template_t));
+	udp_multi_payload_template_t *t = xmalloc(sizeof(udp_multi_payload_template_t));
 
 	// The last $ we encountered outside of a field specifier
 	char *dollar = NULL;
@@ -691,7 +747,7 @@ udp_payload_template_t * udp_template_load(char *buf, unsigned int len)
 	char *tmp;
 	unsigned int tlen;
 
-	udp_payload_field_t c;
+	udp_multi_payload_field_t c;
 
 	t->fcount = 0;
 	t->fields = NULL;
@@ -726,14 +782,14 @@ udp_payload_template_t * udp_template_load(char *buf, unsigned int len)
 				if ( tlen > 0) {
 					tmp = xmalloc(tlen);
 					memcpy(tmp, s, tlen);
-					udp_template_add_field(t, UDP_DATA, tlen, tmp);
+					udp_multi_template_add_field(t, UDP_DATA, tlen, tmp);
 				}
 
 				tmp = xcalloc(1, p-lbrack);
 				memcpy(tmp, lbrack+1, p-lbrack-1);
 
-				if (udp_template_field_lookup(tmp, &c)) {
-					udp_template_add_field(t, c.ftype, c.length, c.data);
+				if (udp_multi_template_field_lookup(tmp, &c)) {
+					udp_multi_template_add_field(t, c.ftype, c.length, c.data);
 
 					// Push the pointer past the } if this was a valid variable
 					s = p + 1;
@@ -764,7 +820,7 @@ udp_payload_template_t * udp_template_load(char *buf, unsigned int len)
 		tlen = p - s;
 		tmp = xmalloc(tlen);
 		memcpy(tmp, s, tlen);
-		udp_template_add_field(t, UDP_DATA, tlen, tmp);
+		udp_multi_template_add_field(t, UDP_DATA, tlen, tmp);
 	}
 
 	return t;
@@ -772,6 +828,7 @@ udp_payload_template_t * udp_template_load(char *buf, unsigned int len)
 
 static fielddef_t fields[] = {
 	{.name = "classification", .type="string", .desc = "packet classification"},
+    {.name = "probe", .type="int", .desc = "which packet was sent"},
 	{.name = "success", .type="int", .desc = "is response considered success"},
 	{.name = "sport", .type = "int", .desc = "UDP source port"},
 	{.name = "dport", .type = "int", .desc = "UDP destination port"},
@@ -783,19 +840,19 @@ static fielddef_t fields[] = {
 	{.name = "data", .type="binary", .desc = "UDP payload"}
 };
 
-probe_module_t module_udp = {
-	.name = "udp",
+probe_module_t module_udp_multi = {
+	.name = "udp_multi",
 	.packet_length = 1,
 	.pcap_filter = "(udp && src port 53) || icmp",
 	.pcap_snaplen = 1500,
 	.port_args = 1,
-	.thread_initialize = &udp_init_perthread,
-	.global_initialize = &udp_global_initialize,
-	.make_packet = &udp_make_packet,
-	.print_packet = &udp_print_packet,
-	.validate_packet = &udp_validate_packet,
-	.process_packet = &udp_process_packet,
-	.close = &udp_global_cleanup,
+	.thread_initialize = &udp_multi_init_perthread,
+	.global_initialize = &udp_multi_global_initialize,
+	.make_packet = &udp_multi_make_packet,
+	.print_packet = &udp_multi_print_packet,
+	.validate_packet = &udp_multi_validate_packet,
+	.process_packet = &udp_multi_process_packet,
+	.close = &udp_multi_global_cleanup,
 	.helptext = "Probe module that sends UDP packets to hosts. Packets can "
 	            "optionally be templated based on destination host. Specify"
 	            " packet file with --probe-args=file:/path_to_packet_file "
