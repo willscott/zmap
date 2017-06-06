@@ -1,14 +1,14 @@
-zblacklist(1) - zmap IP blacklist tool
+ziterate(1) - ZMap IP permutation generation file
 ======================================
 
 ## SYNOPSIS
 
-zblacklist [ -b &lt;blacklist&gt; ] [ -w &lt;whitelist&gt; ] [ OPTIONS... ]
+ziterate [ -b &lt;blacklist&gt; ] [ -w &lt;whitelist&gt; ] [ OPTIONS... ]
 
 ## DESCRIPTION
 
-*ZBlacklist* is a network tool for limiting and deduplicating a list of
-IP addresses using a blacklist or whitelist.
+*ZIterate* is a network tool that will produce IPv4 addresses in a psuedorandom
+order similar to how ZMap generates random addresses to be scanned.
 
 ## OPTIONS
 
@@ -30,11 +30,27 @@ IP addresses using a blacklist or whitelist.
   * `-v`, `--verbosity`:
     Level of log detail (0-5, default=3)
 
-  * `--no-duplicate-checking`:
-    Don't deduplicate input addresses. Default is false.
-
   * `--ignore-blacklist-errors`:
     Ignore invalid entries in the blacklist. Default is false.
 
-  * `--ignore-input-errors`:
-    Don't print invalid entries in the input. Default is false.
+  * `--seed=n`:
+    Seed used to select address permutation.
+
+
+### SHARDING ###
+
+  * `--shards=n`:
+    Total number of shards.
+
+  * `--shard=n`:
+    Shard this scan is targeting. Zero indexed.
+
+
+### ADDITIONAL OPTIONS ###
+
+  * `-h`, `--help`:
+    Print help text and exit.
+
+  * `-v`, `--version`:
+    Print version and exit.
+

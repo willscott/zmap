@@ -8,6 +8,10 @@
 
 int max_int(int a, int b);
 
+
+uint32_t parse_max_hosts(char *max_targets);
+void enforce_range(const char *name, int v, int min, int max);
+
 // Splits comma delimited string into char*[]. Does not handle
 // escaping or complicated setups - designed to process a set
 // of fields that the user wants output
@@ -30,7 +34,7 @@ int check_range(int v, int min, int max);
 
 int file_exists(char *name);
 
-// If running as root, drops priviledges to that of user "nobody".
+// If running as root, drops privileges to that of user "nobody".
 // Otherwise, does nothing.
 int drop_privs();
 

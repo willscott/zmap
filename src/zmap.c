@@ -19,10 +19,7 @@
 #include <time.h>
 
 #include <pcap/pcap.h>
-
-#ifdef JSON
 #include <json.h>
-#endif
 
 #include <pthread.h>
 
@@ -32,6 +29,7 @@
 #include "../lib/random.h"
 #include "../lib/util.h"
 #include "../lib/xalloc.h"
+#include "../lib/pbm.h"
 
 #include "aesrand.h"
 #include "zopt.h"
@@ -48,8 +46,9 @@
 
 #ifdef PFRING
 #include <pfring_zc.h>
-static int32_t distrib_func(pfring_zc_pkt_buff *pkt, void *arg) {
+static int32_t distrib_func(pfring_zc_pkt_buff *pkt, pfring_zc_queue *in_queue, void *arg) {
 	(void) pkt;
+	(void) in_queue;
 	(void) arg;
 	return 0;
 }
@@ -79,14 +78,6 @@ const char *default_help_text = "By default, ZMap prints out unique, successful"
 	"file. Internally this is handled by the \"csv\" output module and is "
 	"equivalent to running zmap --output-module=csv --output-fields=saddr "
 	"--output-filter=\"success = 1 && repeat = 0\".";
-
-static void enforce_range(const char *name, int v, int min, int max)
-{
-	if (check_range(v, min, max) == EXIT_FAILURE) {
-		log_fatal("zmap", "argument `%s' must be between %d and %d\n",
-			name, min, max);
-	}
-}
 
 static void* start_send(void *arg)
 {
@@ -164,8 +155,8 @@ static void start_zmap(void)
 	if (zconf.output_module && zconf.output_module->init) {
 		if (zconf.output_module->init(&zconf, zconf.output_fields,
 				zconf.output_fields_len)) {
-            log_fatal("zmap", "output module did not initialize successfully.");
-        }
+			log_fatal("zmap", "output module did not initialize successfully.");
+		}
 	}
 
 	iterator_t *it = send_init();
@@ -179,20 +170,23 @@ static void start_zmap(void)
 	// start threads
 	uint32_t cpu = 0;
 	pthread_t *tsend, trecv, tmon;
-	recv_arg_t *recv_arg = xmalloc(sizeof(recv_arg_t));
-	recv_arg->cpu = zconf.pin_cores[cpu % zconf.pin_cores_len];
-	cpu += 1;
-	int r = pthread_create(&trecv, NULL, start_recv, recv_arg);
-	if (r != 0) {
-		log_fatal("zmap", "unable to create recv thread");
-	}
-	for (;;) {
-		pthread_mutex_lock(&recv_ready_mutex);
-		if (zconf.recv_ready) {
-			pthread_mutex_unlock(&recv_ready_mutex);
-			break;
+	int r;
+	if (!zconf.dryrun) {
+		recv_arg_t *recv_arg = xmalloc(sizeof(recv_arg_t));
+		recv_arg->cpu = zconf.pin_cores[cpu % zconf.pin_cores_len];
+		cpu += 1;
+		r = pthread_create(&trecv, NULL, start_recv, recv_arg);
+		if (r != 0) {
+			log_fatal("zmap", "unable to create recv thread");
 		}
-		pthread_mutex_unlock(&recv_ready_mutex);
+		for (;;) {
+			pthread_mutex_lock(&recv_ready_mutex);
+			if (zconf.recv_ready) {
+				pthread_mutex_unlock(&recv_ready_mutex);
+				break;
+			}
+			pthread_mutex_unlock(&recv_ready_mutex);
+		}
 	}
 #ifdef PFRING
 	pfring_zc_worker *zw = pfring_zc_run_balancer(zconf.pf.queues,
@@ -230,12 +224,12 @@ static void start_zmap(void)
 	}
 	log_debug("zmap", "%d sender threads spawned", zconf.senders);
 
-	monitor_init();
-	mon_start_arg_t *mon_arg = xmalloc(sizeof(mon_start_arg_t));
-	mon_arg->it = it;
-	mon_arg->recv_ready_mutex = &recv_ready_mutex;
-	mon_arg->cpu = zconf.pin_cores[cpu % zconf.pin_cores_len];
-	{
+	if (!zconf.dryrun) {
+		monitor_init();
+		mon_start_arg_t *mon_arg = xmalloc(sizeof(mon_start_arg_t));
+		mon_arg->it = it;
+		mon_arg->recv_ready_mutex = &recv_ready_mutex;
+		mon_arg->cpu = zconf.pin_cores[cpu % zconf.pin_cores_len];
 		int r = pthread_create(&tmon, NULL, start_mon, mon_arg);
 		if (r != 0) {
 			log_fatal("zmap", "unable to create monitor thread");
@@ -261,25 +255,26 @@ static void start_zmap(void)
 	pfring_zc_sync_queue(zconf.pf.send, tx_only);
 	log_debug("zmap", "send queue flushed");
 #endif
-	r = pthread_join(trecv, NULL);
-	if (r != 0) {
-		log_fatal("zmap", "unable to join recv thread");
-		exit(EXIT_FAILURE);
-	}
-	if (!zconf.quiet || zconf.status_updates_file) {
-		pthread_join(tmon, NULL);
+	// no receiving or monitoring thread is started in dry run mode
+	if (!zconf.dryrun) {
+		r = pthread_join(trecv, NULL);
 		if (r != 0) {
-			log_fatal("zmap", "unable to join monitor thread");
+			log_fatal("zmap", "unable to join recv thread");
 			exit(EXIT_FAILURE);
+		}
+		if (!zconf.quiet || zconf.status_updates_file) {
+			pthread_join(tmon, NULL);
+			if (r != 0) {
+				log_fatal("zmap", "unable to join monitor thread");
+				exit(EXIT_FAILURE);
+			}
 		}
 	}
 
 	// finished
-#ifdef JSON
 	if (zconf.metadata_filename) {
 		json_metadata(zconf.metadata_file);
 	}
-#endif
 	if (zconf.output_module && zconf.output_module->close) {
 		zconf.output_module->close(&zconf, &zsend, &zrecv);
 	}
@@ -328,6 +323,8 @@ int main(int argc, char *argv[])
 	zconf.log_directory = args.log_directory_arg;
 	if (args.disable_syslog_given) {
 		zconf.syslog = 0;
+	} else {
+		zconf.syslog = 1;
 	}
 	if (zconf.log_file && zconf.log_directory) {
 		log_init(stderr, zconf.log_level, zconf.syslog, "zmap");
@@ -376,9 +373,6 @@ int main(int argc, char *argv[])
 	if (!strcmp(args.output_module_arg, "default")) {
 		log_debug("zmap", "no output module provided. will use csv.");
 		zconf.output_module = get_output_module_by_name("csv");
-		zconf.raw_output_fields = (char*) "saddr";
-		zconf.filter_duplicates = 1;
-		zconf.filter_unsuccessful = 1;
 	} else {
 		zconf.output_module = get_output_module_by_name(args.output_module_arg);
 		if (!zconf.output_module) {
@@ -392,17 +386,17 @@ int main(int argc, char *argv[])
 				args.probe_module_arg);
 	  exit(EXIT_FAILURE);
 	}
-    // check whether the probe module is going to generate dynamic data
-    // and that the output module can support exporting that data out of
-    // zmap. If they can't, then quit.
-    if (zconf.probe_module->output_type == OUTPUT_TYPE_DYNAMIC
-            && !zconf.output_module->supports_dynamic_output) {
-        log_fatal("zmap", "specified probe module (%s) requires dynamic "
-                "output support, which output module (%s) does not support. "
-                "Most likely you want to use JSON output.",
-                args.probe_module_arg,
-                args.output_module_arg);
-    }
+	// check whether the probe module is going to generate dynamic data
+	// and that the output module can support exporting that data out of
+	// zmap. If they can't, then quit.
+	if (zconf.probe_module->output_type == OUTPUT_TYPE_DYNAMIC
+			&& !zconf.output_module->supports_dynamic_output) {
+		log_fatal("zmap", "specified probe module (%s) requires dynamic "
+				"output support, which output module (%s) does not support. "
+				"Most likely you want to use JSON output.",
+				args.probe_module_arg,
+				args.output_module_arg);
+	}
 	if (args.help_given) {
 		cmdline_parser_print_help();
 		printf("\nProbe-module (%s) Help:\n", zconf.probe_module->name);
@@ -508,18 +502,26 @@ int main(int argc, char *argv[])
 				&zconf.fsconf.defs, zconf.output_fields,
 				zconf.output_fields_len);
 	}
-	// Parse and validate the output filter, if any
-	if (args.output_filter_arg) {
+	// default filtering behavior is to drop unsuccessful and duplicates
+	if (!args.output_filter_arg || !strcmp(args.output_filter_arg, "default")) {
+		zconf.filter_duplicates = 1;
+		zconf.filter_unsuccessful = 1;
+		log_debug("filter", "no output filter specified. will use default: exclude duplicates and unssuccessful");
+	} else if (args.output_filter_arg && !strcmp(args.output_filter_arg, "")) {
+		zconf.filter_duplicates = 0;
+		zconf.filter_unsuccessful = 0;
+		log_debug("filter", "empty output filter. will not exclude any values");
+	} else {
 		// Run it through yyparse to build the expression tree
 		if (!parse_filter_string(args.output_filter_arg)) {
 			log_fatal("zmap", "Unable to parse filter expression");
 		}
-
 		// Check the fields used against the fieldset in use
 		if (!validate_filter(zconf.filter.expression, &zconf.fsconf.defs)) {
 			log_fatal("zmap", "Invalid filter");
 		}
 		zconf.output_filter_str = args.output_filter_arg;
+		log_debug("filter", "will use output filter %s", args.output_filter_arg);
 	}
 
 	SET_BOOL(zconf.dryrun, dryrun);
@@ -528,6 +530,7 @@ int main(int argc, char *argv[])
 	zconf.cooldown_secs = args.cooldown_time_arg;
 	SET_IF_GIVEN(zconf.output_filename, output_file);
 	SET_IF_GIVEN(zconf.blacklist_filename, blacklist_file);
+	SET_IF_GIVEN(zconf.list_of_ips_filename, list_of_ips_file);
 	SET_IF_GIVEN(zconf.probe_args, probe_args);
 	SET_IF_GIVEN(zconf.output_args, output_args);
 	SET_IF_GIVEN(zconf.iface, interface);
@@ -553,7 +556,6 @@ int main(int argc, char *argv[])
 				zconf.min_hitrate);
 	}
 	if (args.metadata_file_arg) {
-#ifdef JSON
 		zconf.metadata_filename = args.metadata_file_arg;
 		if (!strcmp(zconf.metadata_filename, "-")) {
 			zconf.metadata_file = stdout;
@@ -566,34 +568,19 @@ int main(int argc, char *argv[])
 		}
 		log_debug("metadata", "metdata will be saved to %s",
 				zconf.metadata_filename);
-#else
-		log_fatal("zmap", "JSON support not compiled into ZMap. "
-				"Metadata output not supported.");
-#endif
 	}
 
 	if (args.user_metadata_given) {
-#ifdef JSON
 		zconf.custom_metadata_str = args.user_metadata_arg;
 		if (!json_tokener_parse(zconf.custom_metadata_str)) {
 			log_fatal("metadata", "unable to parse custom user metadata");
 		} else {
 			log_debug("metadata", "user metadata validated successfully");
 		}
-#else
-		log_fatal("zmap", "JSON support not compiled into ZMap. "
-				"Metadata output not supported.");
-#endif
 	}
 	if (args.notes_given) {
-#ifdef JSON
 		zconf.notes = args.notes_arg;
-#else
-		log_fatal("zmap", "JSON support not compiled into ZMap. "
-				"Metadata output and note injection are not supported.");
-#endif
 	}
-
 
 	// find if zmap wants any specific cidrs scanned instead
 	// of the entire Internet
@@ -734,30 +721,7 @@ int main(int argc, char *argv[])
 		}
 	}
 	if (args.max_targets_given) {
-		errno = 0;
-		char *end;
-	  	double v = strtod(args.max_targets_arg, &end);
-		if (end == args.max_targets_arg || errno != 0) {
-			fprintf(stderr, "%s: can't convert max-targets to a number\n",
-					CMDLINE_PARSER_PACKAGE);
-			exit(EXIT_FAILURE);
-		}
-		if (end[0] == '%' && end[1] == '\0') {
-			// treat as percentage
-			v = v * ((unsigned long long int)1 << 32) / 100.;
-		} else if (end[0] != '\0') {
-			fprintf(stderr, "%s: extra characters after max-targets\n",
-				  CMDLINE_PARSER_PACKAGE);
-			exit(EXIT_FAILURE);
-		}
-		if (v <= 0) {
-			zconf.max_targets = 0;
-		}
-		else if (v >= ((unsigned long long int)1 << 32)) {
-			zconf.max_targets = 0xFFFFFFFF;
-		} else {
-			zconf.max_targets = v;
-		}
+		zconf.max_targets = parse_max_hosts(args.max_targets_arg);
 	}
 
 	// blacklist
@@ -766,6 +730,13 @@ int main(int argc, char *argv[])
 			NULL, 0,
 			zconf.ignore_invalid_hosts)) {
 		log_fatal("zmap", "unable to initialize blacklist / whitelist");
+	}
+	// if there's a list of ips to scan, then initialize PBM and populate
+	// it based on the provided file
+	if (zconf.list_of_ips_filename) {
+		zsend.list_of_ips_pbm = pbm_init();
+		zconf.list_of_ips_count = pbm_load_from_file(zsend.list_of_ips_pbm,
+				zconf.list_of_ips_filename);
 	}
 
 	// compute number of targets
@@ -781,8 +752,7 @@ int main(int argc, char *argv[])
 	if (zsend.targets > zconf.max_targets) {
 		zsend.targets = zconf.max_targets;
 	}
-
-	if (zsend.targets == 0) {
+	if (!zsend.targets) {
 		log_fatal("zmap", "zero eligible addresses to scan");
 	}
 
@@ -791,14 +761,8 @@ int main(int argc, char *argv[])
 	if (args.sender_threads_given) {
 		zconf.senders = args.sender_threads_arg;
 	} else {
-		int num_cores = sysconf(_SC_NPROCESSORS_ONLN);
-		zconf.senders = max_int(num_cores - 1, 1);
-		if (!zconf.quiet || zconf.status_updates_file) {
-			// If monitoring, save a core for the monitor thread
-			zconf.senders = max_int(zconf.senders - 1, 1);
-		}
+		zconf.senders = 1;
 	}
-
 	if (2*zconf.senders >= zsend.targets) {
 		log_warn("zmap", "too few targets relative to senders, dropping to one sender");
 		zconf.senders = 1;

@@ -15,6 +15,7 @@
 #include <sys/types.h>
 #include <pwd.h>
 
+#include "../lib/logger.h"
 
 #define MAX_SPLITS 128
 
@@ -24,6 +25,15 @@ int max_int(int a, int b) {
 	}
 	return b;
 }
+
+void enforce_range(const char *name, int v, int min, int max)
+{
+	if (check_range(v, min, max) == EXIT_FAILURE) {
+		log_fatal("zmap", "argument `%s' must be between %d and %d\n",
+			name, min, max);
+	}
+}
+
 
 void split_string(char* in, int *len, char***results)
 {
@@ -98,6 +108,31 @@ void fprintw(FILE *f, char *s, size_t w)
 	}
 	free(news);
 }
+
+uint32_t parse_max_hosts(char *max_targets)
+{
+	int errno = 0;
+	char *end;
+  	double v = strtod(max_targets, &end);
+	if (end == max_targets || errno != 0) {
+		log_fatal("argparse", "can't convert max-targets to a number");
+	}
+	if (end[0] == '%' && end[1] == '\0') {
+		// treat as percentage
+		v = v * ((unsigned long long int)1 << 32) / 100.;
+	} else if (end[0] != '\0') {
+		log_fatal("eargparse", "extra characters after max-targets");
+	}
+	if (v <= 0) {
+		return 0;
+	}
+	else if (v >= ((unsigned long long int)1 << 32)) {
+		return 0xFFFFFFFF;
+	} else {
+		return v;
+	}
+}
+
 
 // pretty print elapsed (or estimated) number of seconds
 void time_string(uint32_t time, int est, char *buf, size_t len)
@@ -247,14 +282,33 @@ int set_cpu(uint32_t core)
 	return EXIT_SUCCESS;
 }
 
+#elif defined(__NetBSD__)
+
+int set_cpu(uint32_t core)
+{
+	cpuset_t *cpuset = cpuset_create();
+	if (cpuset == NULL) {
+		return EXIT_FAILURE;
+	}
+	cpuset_zero(cpuset);
+	cpuset_set(core, cpuset);
+	cpuset_destroy(cpuset);
+
+	if (pthread_setaffinity_np(pthread_self(),
+				cpuset_size(cpuset), cpuset) != 0) {
+		return EXIT_FAILURE;
+	}
+	return EXIT_SUCCESS;
+}
+
 #else
 
-#if defined(__FreeBSD__) || defined(__NetBSD__)
+#if defined(__FreeBSD__)
 #include <sys/param.h>
 #include <sys/cpuset.h>
+#include <pthread_np.h>
 #define cpu_set_t cpuset_t
 #endif
-
 
 int set_cpu(uint32_t core)
 {

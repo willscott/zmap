@@ -18,14 +18,11 @@ set(EXTRA_OUTPUT_MODULES
 
 set(OUTPUT_MODULE_SOURCES
     output_modules/module_csv.c
+    output_modules/module_json.c
     output_modules/output_modules.c
 )
 
 # Handle optional output modules
-if(WITH_JSON)
-    set(OUTPUT_MODULE_SOURCES ${OUTPUT_MODULE_SOURCES} output_modules/module_json.c)
-endif()
-
 if(WITH_REDIS)
     set(OUTPUT_MODULE_SOURCES ${OUTPUT_MODULE_SOURCES} output_modules/module_redis_packed.c output_modules/module_redis_csv.c)
 endif()
@@ -38,7 +35,8 @@ set(PROBE_MODULE_SOURCES
     probe_modules/module_icmp_echo.c
     probe_modules/module_icmp_echo_time.c
     probe_modules/module_tcp_synscan.c
-    probe_modules/module_tcp_cisco_backdoor.c
+    probe_modules/module_tcp_synackscan.c
+	#probe_modules/module_tcp_cisco_backdoor.c
     probe_modules/module_udp.c
     probe_modules/packet.c
     probe_modules/probe_modules.c
@@ -96,11 +94,11 @@ set(ZTESTSOURCES
     state.c
     summary.c
     validate.c
-    zopt_compat.c
+    ztopt_compat.c
     ${PROBE_MODULE_SOURCES}
     ${OUTPUT_MODULE_SOURCES}
     tests/test_harness.c
-    "${CMAKE_CURRENT_BINARY_DIR}/zopt.h"
+    "${CMAKE_CURRENT_BINARY_DIR}/ztopt.h"
     "${CMAKE_CURRENT_BINARY_DIR}/lexer.c"
     "${CMAKE_CURRENT_BINARY_DIR}/parser.c"
     ${EXTRA_PROBE_MODULES}
@@ -111,6 +109,18 @@ set(ZBLSOURCES
     zblacklist.c
     zbopt_compat.c
     "${CMAKE_CURRENT_BINARY_DIR}/zbopt.h"
+)
+
+set(ZITSOURCES
+    aesrand.c
+    cyclic.c
+    iterator.c
+    shard.c
+    state.c
+    validate.c
+    zitopt_compat.c
+    ziterate.c
+    "${CMAKE_CURRENT_BINARY_DIR}/zitopt.h"
 )
 
 set(ZTEESOURCES
@@ -140,23 +150,44 @@ else()
     set(ZTESTSOURCES ${ZTESTSOURCES} recv-pcap.c)
 endif()
 
+# Set configure time zmap version
 configure_file(topt.ggo.in ${CMAKE_BINARY_DIR}/src/topt.ggo @ONLY)
 configure_file(zbopt.ggo.in ${CMAKE_BINARY_DIR}/src/zbopt.ggo @ONLY)
+configure_file(zitopt.ggo.in ${CMAKE_BINARY_DIR}/src/zitopt.ggo @ONLY)
 configure_file(zopt.ggo.in ${CMAKE_BINARY_DIR}/src/zopt.ggo @ONLY)
+configure_file(ztopt.ggo.in ${CMAKE_BINARY_DIR}/src/ztopt.ggo @ONLY)
+# Additional ggo.in's should be added here and CMakeVersion.txt
+
+# This sets a *build* time dependency that checks git
+if("${ZMAP_VERSION}" STREQUAL "DEVELOPMENT")
+    add_custom_target(git_versioning ALL
+        COMMAND ${CMAKE_COMMAND} -D ORIG_SRC_DIR:STRING="${CMAKE_SOURCE_DIR}" -P "${CMAKE_SOURCE_DIR}/src/CMakeVersion.txt"
+        )
+endif()
 
 add_custom_command(OUTPUT zopt.h
-    COMMAND gengetopt -C --no-help --no-version --unamed-opts=SUBNETS -i "${CMAKE_CURRENT_SOURCE_DIR}/zopt.ggo" -F "${CMAKE_CURRENT_BINARY_DIR}/zopt"
-    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/zopt.ggo"
+    COMMAND gengetopt -C --no-help --no-version --unamed-opts=SUBNETS -i "${CMAKE_CURRENT_BINARY_DIR}/zopt.ggo" -F "${CMAKE_CURRENT_BINARY_DIR}/zopt"
+    DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/zopt.ggo"
 )
 
 add_custom_command(OUTPUT topt.h
-    COMMAND gengetopt -S --no-help --no-version --unamed-opts=FILE -i "${CMAKE_CURRENT_SOURCE_DIR}/topt.ggo" -F "${CMAKE_CURRENT_BINARY_DIR}/topt"
-    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/topt.ggo"
+    COMMAND gengetopt -S --no-help --no-version --unamed-opts=FILE -i "${CMAKE_CURRENT_BINARY_DIR}/topt.ggo" -F "${CMAKE_CURRENT_BINARY_DIR}/topt"
+    DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/topt.ggo"
 )
 
 add_custom_command(OUTPUT zbopt.h
-    COMMAND gengetopt -C --no-help --no-version -i "${CMAKE_CURRENT_SOURCE_DIR}/zbopt.ggo" -F "${CMAKE_CURRENT_BINARY_DIR}/zbopt"
-    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/zbopt.ggo"
+    COMMAND gengetopt -C --no-help --no-version -i "${CMAKE_CURRENT_BINARY_DIR}/zbopt.ggo" -F "${CMAKE_CURRENT_BINARY_DIR}/zbopt"
+    DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/zbopt.ggo"
+)
+
+add_custom_command(OUTPUT zitopt.h
+	COMMAND gengetopt -C --no-help --no-version --unamed-opts=SUBNETS -i "${CMAKE_CURRENT_BINARY_DIR}/zitopt.ggo" -F "${CMAKE_CURRENT_BINARY_DIR}/zitopt"
+    DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/zitopt.ggo"
+)
+
+add_custom_command(OUTPUT ztopt.h
+	COMMAND gengetopt -C --no-help --no-version -i "${CMAKE_CURRENT_BINARY_DIR}/ztopt.ggo" -F "${CMAKE_CURRENT_BINARY_DIR}/ztopt"
+    DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/ztopt.ggo"
 )
 
 add_custom_command(OUTPUT lexer.c
@@ -164,13 +195,21 @@ add_custom_command(OUTPUT lexer.c
     DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/lexer.l"
 )
 
+if(NetBSD)
+add_custom_command(OUTPUT parser.c
+    COMMAND yacc -d -o "${CMAKE_CURRENT_BINARY_DIR}/parser.c" "${CMAKE_CURRENT_SOURCE_DIR}/parser.y"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/parser.y"
+)
+else()
 add_custom_command(OUTPUT parser.c
     COMMAND byacc -d -o "${CMAKE_CURRENT_BINARY_DIR}/parser.c" "${CMAKE_CURRENT_SOURCE_DIR}/parser.y"
     DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/parser.y"
 )
+endif()
 
 add_executable(zmap ${SOURCES})
 add_executable(zblacklist ${ZBLSOURCES})
+add_executable(ziterate ${ZITSOURCES})
 add_executable(ztee ${ZTEESOURCES})
 add_executable(ztests ${ZTESTSOURCES})
 
@@ -198,6 +237,13 @@ target_link_libraries(
 )
 
 target_link_libraries(
+    ziterate
+    zmaplib
+    gmp
+    m
+)
+
+target_link_libraries(
     ztee
     zmaplib
     m
@@ -219,6 +265,7 @@ install(
     TARGETS
     zmap
     zblacklist
+    ziterate
     ztee
     RUNTIME DESTINATION sbin
 )
@@ -228,6 +275,7 @@ install(
     FILES
     zmap.1
     zblacklist.1
+    ziterate.1
     ztee.1
     DESTINATION share/man/man1
 )

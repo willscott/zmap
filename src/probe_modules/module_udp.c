@@ -278,6 +278,9 @@ int udp_make_packet(void *buf, ipaddr_n_t src_ip, ipaddr_n_t dst_ip,
 		// The buf is a stack var of our caller of size MAX_PACKET_SIZE
 		// Recalculate the payload using the loaded template
 		payload_len = udp_template_build(udp_template, payload, MAX_UDP_PAYLOAD_LEN, ip_header, udp_header, aes);
+		// Recalculate the total length of the packet
+		module_udp.packet_length = sizeof(struct ether_header) + sizeof(struct ip)
+			+ sizeof(struct udphdr) + payload_len;
 
 		// If success is zero, the template output was truncated
 		if (payload_len <= 0) {
@@ -300,7 +303,7 @@ void udp_print_packet(FILE *fp, void* packet)
 {
 	struct ether_header *ethh = (struct ether_header *) packet;
 	struct ip *iph = (struct ip *) &ethh[1];
-    struct udphdr *udph = (struct udphdr*)(&iph[1]); 
+    struct udphdr *udph = (struct udphdr*)(&iph[1]);
 	fprintf(fp, "udp { source: %u | dest: %u | checksum: %#04X }\n",
 		ntohs(udph->uh_sport),
 		ntohs(udph->uh_dport),
@@ -317,7 +320,7 @@ void udp_process_packet(const u_char *packet, UNUSED uint32_t len, fieldset_t *f
 	if (ip_hdr->ip_p == IPPROTO_UDP) {
 		struct udphdr *udp = (struct udphdr *) ((char *) ip_hdr + ip_hdr->ip_hl * 4);
 		fs_add_constchar(fs, "classification", "udp");
-		fs_add_uint64(fs, "success", 1);
+		fs_add_bool(fs, "success", 1);
 		fs_add_uint64(fs, "sport", ntohs(udp->uh_sport));
 		fs_add_uint64(fs, "dport", ntohs(udp->uh_dport));
 		fs_add_null(fs, "icmp_responder");
@@ -352,7 +355,7 @@ void udp_process_packet(const u_char *packet, UNUSED uint32_t len, fieldset_t *f
 		// But we will fix up saddr to be who we sent the probe to, in case you care.
 		fs_modify_string(fs, "saddr", make_ip_str(ip_inner->ip_dst.s_addr), 1);
 		fs_add_string(fs, "classification", (char*) "icmp-unreach", 0);
-		fs_add_uint64(fs, "success", 0);
+		fs_add_bool(fs, "success", 0);
 		fs_add_null(fs, "sport");
 		fs_add_null(fs, "dport");
 		fs_add_string(fs, "icmp_responder", make_ip_str(ip_hdr->ip_src.s_addr), 1);
@@ -368,7 +371,7 @@ void udp_process_packet(const u_char *packet, UNUSED uint32_t len, fieldset_t *f
 		fs_add_null(fs, "data");
 	} else {
 		fs_add_string(fs, "classification", (char *) "other", 0);
-		fs_add_uint64(fs, "success", 0);
+		fs_add_bool(fs, "success", 0);
 		fs_add_null(fs, "sport");
 		fs_add_null(fs, "dport");
 		fs_add_null(fs, "icmp_responder");
@@ -633,7 +636,7 @@ int udp_template_build(udp_payload_template_t *t, char *out, unsigned int len,
 		}
 	}
 
-	return p - out - 1;
+	return p - out;
 }
 
 // Convert a string field name to a field type, parsing any specified length value
@@ -772,7 +775,7 @@ udp_payload_template_t * udp_template_load(char *buf, unsigned int len)
 
 static fielddef_t fields[] = {
 	{.name = "classification", .type="string", .desc = "packet classification"},
-	{.name = "success", .type="int", .desc = "is response considered success"},
+	{.name = "success", .type="bool", .desc = "is response considered success"},
 	{.name = "sport", .type = "int", .desc = "UDP source port"},
 	{.name = "dport", .type = "int", .desc = "UDP destination port"},
 	{.name = "icmp_responder", .type = "string", .desc = "Source IP of ICMP_UNREACH message"},

@@ -92,12 +92,12 @@ struct state_conf {
 	char *output_filename;
 	char *blacklist_filename;
 	char *whitelist_filename;
-#ifdef JSON
+	char *list_of_ips_filename;
+	uint32_t list_of_ips_count;
 	char *metadata_filename;
 	FILE *metadata_file;
 	char *notes;
 	char *custom_metadata_str;
-#endif
 	char **destination_cidrs;
 	int destination_cidrs_len;
 	char *raw_output_fields;
@@ -140,6 +140,7 @@ struct state_send {
 	double start;
 	double finish;
 	uint32_t sent;
+	uint32_t tried_sent;
 	uint32_t blacklisted;
 	uint32_t whitelisted;
 	int warmup;
@@ -148,6 +149,7 @@ struct state_send {
 	uint32_t targets;
 	uint32_t sendto_failures;
 	uint32_t max_index;
+	uint8_t **list_of_ips_pbm;
 };
 extern struct state_send zsend;
 
@@ -170,6 +172,9 @@ struct state_recv {
 	// how many packets did we receive that were marked as being the first
 	// fragment in a stream
 	uint32_t ip_fragments;
+	// metrics about _only_ validate_packet
+	uint32_t validation_passed;
+	uint32_t validation_failed;
 
 	int complete;  // has the scanner finished sending?
 	double start;  // timestamp of when recv started

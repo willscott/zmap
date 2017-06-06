@@ -18,6 +18,8 @@ struct state_conf zconf = {
 	.output_filename = NULL,
 	.blacklist_filename = NULL,
 	.whitelist_filename = NULL,
+	.list_of_ips_filename = NULL,
+	.list_of_ips_count = 0,
 	.target_port = 0,
 	.max_targets = 0xFFFFFFFF,
 	.max_runtime = 0,
@@ -54,14 +56,12 @@ struct state_conf zconf = {
 	.syslog = 1,
 	.filter_duplicates = 0,
 	.filter_unsuccessful = 0,
-	.max_sendto_failures = 1,
+	.max_sendto_failures = -1,
 	.min_hitrate = 0.0,
-#ifdef JSON
 	.metadata_file = NULL,
 	.metadata_filename = NULL,
 	.notes = NULL,
 	.custom_metadata_str = NULL,
-#endif
 	.recv_ready = 0
 };
 
@@ -70,12 +70,14 @@ struct state_send zsend = {
 	.start = 0.0,
 	.finish = 0.0,
 	.sent = 0,
+	.tried_sent = 0,
 	.blacklisted = 0,
 	.whitelisted = 0,
 	.warmup = 1,
 	.complete = 0,
 	.sendto_failures = 0,
 	.targets = 0,
+	.list_of_ips_pbm = NULL,
 };
 
 // global receiver stats and defaults
@@ -84,6 +86,8 @@ struct state_recv zrecv = {
 	.success_total = 0,
 	.app_success_unique = 0,
 	.app_success_total = 0,
+	.validation_passed = 0,
+	.validation_failed = 0,
 	.cooldown_unique = 0,
 	.cooldown_total = 0,
 	.failure_total = 0,

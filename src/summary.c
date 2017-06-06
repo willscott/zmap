@@ -25,7 +25,6 @@
 
 #define STRTIME_LEN 1024
 
-#ifdef JSON
 #include <json.h>
 
 void json_metadata(FILE *file)
@@ -122,6 +121,11 @@ void json_metadata(FILE *file)
 		json_object_new_int64(zconf.total_allowed));
 	json_object_object_add(obj, "blacklist_total_not_allowed",
 		json_object_new_int64(zconf.total_disallowed));
+	json_object_object_add(obj, "validation_passed",
+            json_object_new_int(zrecv.validation_passed));
+	json_object_object_add(obj, "validation_failed",
+            json_object_new_int(zrecv.validation_failed));
+
 //	json_object_object_add(obj, "blacklisted",
 //            json_object_new_int64(zsend.blacklisted));
 //	json_object_object_add(obj, "whitelisted",
@@ -132,7 +136,6 @@ void json_metadata(FILE *file)
             json_object_new_int64(zsend.sendto_failures));
 	json_object_object_add(obj, "total_sent",
             json_object_new_int64(zsend.sent));
-
 	json_object_object_add(obj, "success_total",
             json_object_new_int64(zrecv.success_total));
 	json_object_object_add(obj, "success_unique",
@@ -247,6 +250,18 @@ void json_metadata(FILE *file)
 			"whitelist_filename",
 			json_object_new_string(zconf.whitelist_filename));
 	}
+	if (zconf.list_of_ips_filename) {
+		json_object_object_add(obj,
+			"list_of_ips_filename",
+			json_object_new_string(zconf.list_of_ips_filename));
+		json_object_object_add(obj,
+			"list_of_ips_count",
+			json_object_new_int(zconf.list_of_ips_count));
+		json_object_object_add(obj,
+			"list_of_ips_tried_sent",
+			json_object_new_int(zsend.tried_sent));
+
+	}
 	json_object_object_add(obj, "dryrun",
             json_object_new_int(zconf.dryrun));
 	json_object_object_add(obj, "quiet",
@@ -301,10 +316,4 @@ void json_metadata(FILE *file)
 	fprintf(file, "%s\n", json_object_to_json_string(obj));
 	json_object_put(obj);
 }
-#else
-void json_metadata(FILE *file)
-{
-	(void) file;
-	log_error("metadata", "JSON support not compiled in");
-}
-#endif
+

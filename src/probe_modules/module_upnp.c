@@ -21,13 +21,14 @@
 #include "packet.h"
 #include "module_udp.h"
 
+#define ICMP_UNREACH_HEADER_SIZE 8
+
 static const char *upnp_query = "M-SEARCH * HTTP/1.1\r\n"
-"Host:239.255.255.250:1900\r\n"
-"ST:upnp:rootdevice\r\n"
-"Man:\"ssdp:discover\"\r\nMX:3\r\n\r\n";
+		"Host:239.255.255.250:1900\r\n"
+		"ST:upnp:rootdevice\r\n"
+		"Man:\"ssdp:discover\"\r\nMX:3\r\n\r\n";
 
 probe_module_t module_upnp;
-#define ICMP_UNREACH_HEADER_SIZE 8
 
 int upnp_global_initialize(struct state_conf *state)
 {
@@ -102,13 +103,20 @@ void upnp_process_packet(const u_char *packet,
 		const char *classification = "none";
 		uint64_t is_success = 0;
 
-		char *server=NULL, *location=NULL, *usn=NULL, *st=NULL,
-		     *cachecontrol=NULL, *ext=NULL, *xusragent=NULL,
-		     *date=NULL, *agent=NULL;
+		char *server=NULL,
+			 *location=NULL,
+			 *usn=NULL,
+			 *st=NULL,
+		     *cachecontrol=NULL,
+			 *ext=NULL,
+			 *xusragent=NULL,
+		     *date=NULL,
+			 *agent=NULL;
+
 		char *pch = strtok(s, "\n");
 		while (pch != NULL) {
-			if (pch[strlen(pch)-1] == '\r') {
-				pch[strlen(pch)-1] = '\0';
+			if (pch[strlen(pch) - 1] == '\r') {
+				pch[strlen(pch) - 1] = '\0';
 			}
 			if (strlen(pch) == 0) {
 				pch = strtok(NULL, "\n");
@@ -163,9 +171,10 @@ void upnp_process_packet(const u_char *packet,
 			}
 			pch = strtok(NULL, "\n");
 		}
+
 cleanup:
 		fs_add_string(fs, "classification", (char *) classification, 0);
-		fs_add_uint64(fs, "success", is_success);
+		fs_add_bool(fs, "success", is_success);
 		fs_chkadd_unsafe_string(fs, "server", server, 1);
 		fs_chkadd_unsafe_string(fs, "location", location, 1);
 		fs_chkadd_unsafe_string(fs, "usn", usn, 1);
@@ -220,7 +229,7 @@ cleanup:
 #endif
 	} else {
 		fs_add_string(fs, "classification", (char *) "other", 0);
-		fs_add_uint64(fs, "success", 0);
+		fs_add_bool(fs, "success", 0);
 		fs_add_null(fs, "server");
 		fs_add_null(fs, "location");
 		fs_add_null(fs, "usn");
@@ -242,7 +251,7 @@ cleanup:
 
 static fielddef_t fields[] = {
 	{.name = "classification", .type="string", .desc = "packet classification"},
-	{.name = "success", .type="int", .desc = "is response considered success"},
+	{.name = "success", .type="bool", .desc = "is response considered success"},
 
 	{.name = "server", .type="string", .desc = "UPnP server"},
 	{.name = "location", .type="string", .desc = "UPnP location"},
