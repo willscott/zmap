@@ -367,7 +367,7 @@ void udp_multi_print_packet(FILE *fp, void* packet)
 	fprintf(fp, "------------------------------------------------------\n");
 }
 
-void udp_multi_process_packet(const u_char *packet, UNUSED uint32_t len, fieldset_t *fs)
+void udp_multi_process_packet(const u_char *packet, UNUSED uint32_t len, fieldset_t *fs, UNUSED uint32_t *validation)
 {
 	struct ip *ip_hdr = (struct ip *) &packet[sizeof(struct ether_header)];
 	if (ip_hdr->ip_p == IPPROTO_UDP) {
