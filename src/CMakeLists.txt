@@ -73,11 +73,6 @@ set(SOURCES
     ${PROBE_MODULE_SOURCES}
     ${OUTPUT_MODULE_SOURCES}
 )
-# ADD YOUR PROBE MODULE HERE
-SET(EXTRA_PROBE_MODULES
-	probe_modules/module_tcp_ackscan.c
-        probe_modules/module_udp_multi.c
-	)
 
 set(ZTESTSOURCES
     aesrand.c
